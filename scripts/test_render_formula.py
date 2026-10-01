@@ -1,8 +1,17 @@
 import unittest
-from render_formula import TARGETS, render
+from render_formula import TARGETS, render, render_cask
 
 
 class FormulaTests(unittest.TestCase):
+    def test_macos_cask_installs_prebuilt_binary(self):
+        hashes = {target: f"{i + 1:064x}" for i, target in enumerate(TARGETS)}
+        cask = render_cask("0.1.0", hashes)
+        self.assertIn('cask "crew"', cask)
+        self.assertIn('binary "crew"', cask)
+        self.assertIn(hashes["darwin_arm64"], cask)
+        self.assertIn(hashes["darwin_amd64"], cask)
+        self.assertIn("darwin_#{arch}", cask)
+
     def test_all_platform_archives_have_checksums(self):
         hashes = {target: f"{i + 1:064x}" for i, target in enumerate(TARGETS)}
         formula = render("0.1.0", hashes)

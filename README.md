@@ -18,7 +18,8 @@ against an installed CLI. No API keys are required by Crew itself.
 Install the public release with Homebrew:
 
 ```sh
-brew install tesserix/tap/crew
+brew install --cask tesserix/tap/crew  # macOS
+# Linux: brew install tesserix/tap/crew
 crew doctor
 crew
 ```

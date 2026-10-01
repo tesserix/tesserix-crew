@@ -3,19 +3,22 @@
 Public install after the first release and tap formula are published:
 
 ```sh
-brew install tesserix/tap/crew
+brew install --cask tesserix/tap/crew  # macOS: installs the prebuilt binary directly
+# Linux: brew install tesserix/tap/crew
 crew doctor
 crew
 ```
 
-Upgrade with `brew update && brew upgrade crew`. Homebrew installs Crew, not the
+Upgrade with `brew update && brew upgrade --cask crew` on macOS, or
+`brew update && brew upgrade crew` on Linux. Homebrew installs Crew, not the
 provider CLIs; Claude Code, Codex and Gemini need their own installation/login.
 
 ## Release
 
 The tag workflow builds CGO-free macOS/Linux binaries for arm64 and amd64, runs
 checks, packages LICENSE/NOTICE, publishes checksums and immutable release assets,
-and renders `crew.rb` using the exact asset hashes.
+and renders the formula and macOS cask using the exact asset hashes. The macOS
+cask avoids source-formula Xcode/compiler checks for this prebuilt executable.
 
 1. Review, commit and push the source to `tesserix/tesserix-crew`.
 2. For automatic tap updates, configure `HOMEBREW_TAP_GITHUB_TOKEN` in Crew's GitHub
