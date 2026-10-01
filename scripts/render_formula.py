@@ -39,6 +39,7 @@ def render(version, checksums):
     lines += [
         "  def install",
         '    bin.install "crew"',
+        '    pkgshare.install "THIRD_PARTY_LICENSES.txt"',
         "  end",
         "",
         "  test do",

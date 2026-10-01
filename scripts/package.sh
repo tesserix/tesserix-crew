@@ -13,5 +13,6 @@ CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
   go build -trimpath -ldflags="-s -w -X main.version=$version" \
   -o "$package/crew" ./cmd/crew
 cp LICENSE NOTICE "$package/"
+python3 scripts/third_party_licenses.py --output "$package/THIRD_PARTY_LICENSES.txt"
 tar -czf "dist/crew_${version}_${target_os}_${target_arch}.tar.gz" \
-  -C "$package" crew LICENSE NOTICE
+  -C "$package" crew LICENSE NOTICE THIRD_PARTY_LICENSES.txt
