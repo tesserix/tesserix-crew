@@ -13,6 +13,27 @@ Upgrade with `brew update && brew upgrade --cask crew` on macOS, or
 `brew update && brew upgrade crew` on Linux. Homebrew installs Crew, not the
 provider CLIs; Claude Code, Codex and Gemini need their own installation/login.
 
+## macOS first launch for 0.1.0
+
+The initial binary has a valid ad-hoc Go signature, but is not Developer ID signed
+or notarized. macOS can show a Gatekeeper warning on first launch. Inspect the
+source/release checksums before choosing to trust this release. For a trusted fresh
+installation, Homebrew supports the explicit per-install option:
+
+```sh
+brew install --cask --no-quarantine tesserix/tap/crew
+```
+
+For an already installed, verified binary, remove only its quarantine attribute:
+
+```sh
+xattr -d com.apple.quarantine "$(brew --prefix)/Caskroom/crew/0.1.0/crew"
+crew version
+```
+
+This does not change system-wide Gatekeeper settings. Signed/notarized releases
+are tracked in [issue #9](https://github.com/tesserix/tesserix-crew/issues/9).
+
 ## Release
 
 The tag workflow builds CGO-free macOS/Linux binaries for arm64 and amd64, runs

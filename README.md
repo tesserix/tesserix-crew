@@ -25,6 +25,8 @@ crew
 ```
 
 See [Homebrew release setup](docs/HOMEBREW.md).
+The initial macOS release is not notarized; see the linked first-launch instructions
+if Gatekeeper asks you to verify the application.
 
 The next milestone is tracked in the [provider/lifecycle/skills roadmap](docs/ROADMAP.md).
 
