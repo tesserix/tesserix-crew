@@ -1,0 +1,8 @@
+/bin/
+/dist/
+/package/
+__pycache__/
+/.crew/state/
+*.test
+coverage.out
+.DS_Store
