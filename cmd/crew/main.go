@@ -17,7 +17,7 @@ import (
 	"github.com/tesserix/tesserix-crew/internal/ui"
 )
 
-var version = "0.1.0"
+var version = "0.1.1"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

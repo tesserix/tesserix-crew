@@ -19,6 +19,12 @@ import (
 type progressMsg core.Update
 type finishMsg struct{ err error }
 type tickMsg time.Time
+type repoStatusMsg struct {
+	branch     string
+	changes    int
+	delegation string
+	seq        int64
+}
 type model struct {
 	runner              *core.Runner
 	session             core.Session
@@ -79,9 +85,15 @@ func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptio
 	_, e = tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	return e
 }
-func tick() tea.Cmd                  { return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) }) }
-func (m model) Init() tea.Cmd        { return tea.Batch(textinput.Blink, tick(), m.spinner.Tick) }
-func (m *model) refresh()            { m.output.SetContent(m.transcript()); m.output.GotoBottom() }
+func tick() tea.Cmd           { return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) }) }
+func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, tick(), m.spinner.Tick) }
+func (m *model) refresh() {
+	follow := m.output.AtBottom() || m.output.TotalLineCount() == 0
+	m.output.SetContent(m.transcript())
+	if follow {
+		m.output.GotoBottom()
+	}
+}
 func (m *model) add(text string)     { m.lines = append(m.lines, text); m.refresh() }
 func wait(ch <-chan tea.Msg) tea.Cmd { return func() tea.Msg { return <-ch } }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -93,26 +105,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = v.Width
 		m.height = v.Height
-		m.output.Width = max(1, v.Width-4)
+		m.output.Width = max(1, min(100, v.Width-4))
 		m.output.Height = max(1, v.Height-8)
 		m.input.Width = max(1, v.Width-10)
 		m.refresh()
+	case repoStatusMsg:
+		m.branch, m.changes = v.branch, v.changes
+		if m.busy && v.seq > m.lastDelegation {
+			m.status = v.delegation
+			m.lastDelegation = v.seq
+		}
+		return m, tick()
 	case tickMsg:
-		m.branch, m.changes = core.GitStatus(m.session.Repo)
-		// Delegation events are also written by the MCP child process.
-		if m.busy {
-			events, e := m.runner.Store.Events(m.session.ID)
-			if e == nil {
-				for i := len(events) - 1; i >= 0; i-- {
-					if events[i].Kind == "delegation" && events[i].Seq > m.lastDelegation {
-						m.status = events[i].Agent + " · " + strings.Split(events[i].Content, "\n")[0]
-						m.lastDelegation = events[i].Seq
-						break
+		repo, busy, runner, session, after := m.session.Repo, m.busy, m.runner, m.session.ID, m.lastDelegation
+		return m, func() tea.Msg {
+			branch, changes := core.GitStatus(repo)
+			result := repoStatusMsg{branch: branch, changes: changes}
+			if busy && runner != nil {
+				events, err := runner.Store.ContextEvents(session, after)
+				if err == nil {
+					for _, event := range events {
+						if event.Kind == "delegation" {
+							result.delegation = event.Agent + " · " + strings.Split(event.Content, "\n")[0]
+							result.seq = event.Seq
+						}
 					}
 				}
 			}
+			return result
 		}
-		return m, tick()
 	case progressMsg:
 		m.lastActivity = time.Now()
 		if v.Kind == "delta" {
@@ -156,6 +177,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.Focus()
 		return m, textinput.Blink
 	case tea.KeyMsg:
+		if v.String() == "tab" && !m.busy {
+			value := m.input.Value()
+			for _, candidate := range []string{"/agent claude", "/agent codex", "/agent auto", "/model", "/skills", "/status", "/context", "/help", "/quit"} {
+				if strings.HasPrefix(candidate, value) && candidate != value {
+					m.input.SetValue(candidate)
+					m.input.CursorEnd()
+					return m, nil
+				}
+			}
+		}
 		if v.String() == "ctrl+c" {
 			if m.busy {
 				m.cancel()
@@ -223,6 +254,12 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/help":
 		m.add("/agent claude|codex|gemini|auto · /model NAME · /status · /context · /skills · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
 	case "/agent":
+		if len(fields) == 1 {
+			m.input.SetValue("/agent ")
+			m.input.CursorEnd()
+			m.add("Agents\nclaude · codex · gemini (requires adapter support) · auto\nType /agent NAME to select the next provider. Shared context follows you.")
+			break
+		}
 		if len(fields) != 2 || (!core.ValidAgent(fields[1]) && fields[1] != "auto") {
 			m.add("Usage: /agent claude|codex|gemini|auto")
 			break

@@ -54,7 +54,8 @@ func OpenStore(home string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, kind TEXT NOT NULL, agent TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS events_session ON events(session,seq);
  CREATE TABLE IF NOT EXISTS native(session TEXT NOT NULL,agent TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(session,agent));
- CREATE TABLE IF NOT EXISTS skills(session TEXT PRIMARY KEY,manifest TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS context_cursors(session TEXT NOT NULL,agent TEXT NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(session,agent));
+CREATE TABLE IF NOT EXISTS skills(session TEXT PRIMARY KEY,manifest TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS leases(repo TEXT PRIMARY KEY, owner TEXT NOT NULL, expires INTEGER NOT NULL);`)
 	if err != nil {
 		db.Close()
@@ -208,4 +209,34 @@ func (s *Store) Renew(repo, owner string) error {
 func (s *Store) Release(repo, owner string) error {
 	_, e := s.db.Exec("DELETE FROM leases WHERE repo=? AND owner=?", repo, owner)
 	return e
+}
+
+// ContextCursor records the journal already delivered to a native provider session.
+func (s *Store) ContextCursor(id, agent string) (int64, error) {
+	var seq int64
+	err := s.db.QueryRow("SELECT seq FROM context_cursors WHERE session=? AND agent=?", id, agent).Scan(&seq)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return seq, err
+}
+func (s *Store) MarkContext(id, agent string) error {
+	_, err := s.db.Exec("INSERT OR REPLACE INTO context_cursors SELECT ?,?,COALESCE(MAX(seq),0) FROM events WHERE session=?", id, agent, id)
+	return err
+}
+func (s *Store) ContextEvents(id string, after int64) ([]Event, error) {
+	rows, err := s.db.Query("SELECT * FROM events WHERE session=? AND seq>? AND kind IN ('user','assistant','delegation','error') ORDER BY seq", id, after)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.Session, &e.Kind, &e.Agent, &e.Content, &e.Created); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
 }

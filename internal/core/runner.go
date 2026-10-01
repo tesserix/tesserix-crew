@@ -76,7 +76,10 @@ func (r *Runner) Skills(s Session) ([]Skill, error) {
 	return skills, r.Store.SetSkills(s.ID, skills)
 }
 func (r *Runner) Context(s Session, skills []Skill) (string, error) {
-	events, e := r.Store.Events(s.ID)
+	return r.contextSince(s, skills, 0)
+}
+func (r *Runner) contextSince(s Session, skills []Skill, after int64) (string, error) {
+	events, e := r.Store.ContextEvents(s.ID, after)
 	if e != nil {
 		return "", e
 	}
@@ -176,11 +179,22 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	if e != nil {
 		return "", e
 	}
-	briefing, e := r.Context(s, skills)
+	native, e := r.Store.Native(s.ID, agent)
 	if e != nil {
 		return "", e
 	}
-	native, e := r.Store.Native(s.ID, agent)
+	var after int64
+	if native != "" {
+		after, e = r.Store.ContextCursor(s.ID, agent)
+		if e != nil {
+			return "", e
+		}
+	}
+	contextSkills := skills
+	if after > 0 {
+		contextSkills = nil
+	}
+	briefing, e := r.contextSince(s, contextSkills, after)
 	if e != nil {
 		return "", e
 	}
@@ -274,6 +288,9 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 		return output, e
 	}
 	if e = r.Store.Append(s.ID, "completed", agent, "Task completed; verify generated changes before publishing"); e != nil {
+		return output, e
+	}
+	if e = r.Store.MarkContext(s.ID, agent); e != nil {
 		return output, e
 	}
 	emit(Update{"done", agent, "completed"})

@@ -73,3 +73,33 @@ func TestStreamingTextIsIncremental(t *testing.T) {
 		t.Fatal("stream not closed")
 	}
 }
+
+func TestWideTerminalUsesReadableColumn(t *testing.T) {
+	m := model{input: textinput.New(), output: viewport.New(80, 8)}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 30})
+	if next.(model).output.Width != 100 {
+		t.Fatal("conversation should be capped at 100 columns")
+	}
+}
+func TestStreamingPreservesScrollPosition(t *testing.T) {
+	m := model{output: viewport.New(40, 4), lines: []string{"claude\n" + strings.Repeat("line\n", 30)}}
+	m.refresh()
+	m.output.GotoTop()
+	m.lines[0] += "more\n"
+	m.refresh()
+	if m.output.YOffset != 0 {
+		t.Fatal("streaming moved reader away from older messages")
+	}
+}
+func TestAgentDiscoveryAndCompletion(t *testing.T) {
+	m := model{input: textinput.New(), output: viewport.New(80, 8)}
+	m.slash("/agent")
+	if m.input.Value() != "/agent " || !strings.Contains(m.lines[0], "codex") {
+		t.Fatal("missing agent discovery")
+	}
+	m.input.SetValue("/agent co")
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if next.(model).input.Value() != "/agent codex" {
+		t.Fatal("missing completion")
+	}
+}

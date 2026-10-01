@@ -21,7 +21,7 @@ var (
 )
 
 func (m model) transcript() string {
-	width := max(1, m.output.Width)
+	width := max(1, min(100, m.output.Width))
 	if len(m.lines) == 0 {
 		title := lipgloss.NewStyle().Bold(true).Foreground(foreground).Render("One session. Your coding crew.")
 		subtitle := lipgloss.NewStyle().Foreground(muted).Render("Describe what you want to build, fix, or explore.")
@@ -61,17 +61,47 @@ func (m model) transcript() string {
 			blocks = append(blocks, lipgloss.NewStyle().Foreground(muted).Width(width).Render(raw))
 			continue
 		}
-		heading := lipgloss.NewStyle().Bold(true).Foreground(color).Render(label)
-		content := lipgloss.NewStyle().Foreground(foreground).Width(max(1, width-2)).Render(body)
+		heading := lipgloss.NewStyle().Bold(true).Foreground(color).Render("● " + label)
+		content := renderBody(body, max(1, width-2))
 		blocks = append(blocks, heading+"\n"+lipgloss.NewStyle().PaddingLeft(2).Render(content))
 	}
 	return strings.Join(blocks, "\n\n")
 }
 
+// Keep code visibly separate while retaining its whitespace and copyable text.
+func renderBody(body string, width int) string {
+	var lines []string
+	code := false
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			code = !code
+			language := strings.TrimPrefix(strings.TrimSpace(line), "```")
+			if code {
+				if language == "" {
+					language = "code"
+				}
+				lines = append(lines, lipgloss.NewStyle().Foreground(muted).Width(width).Render("┌ "+language))
+			} else {
+				lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("└"))
+			}
+			continue
+		}
+		style := lipgloss.NewStyle().Foreground(foreground).Width(width)
+		if code {
+			style = style.Foreground(accent).PaddingLeft(2).Width(width)
+		} else if strings.HasPrefix(line, "#") {
+			line = strings.TrimLeft(line, "# ")
+			style = style.Bold(true)
+		}
+		lines = append(lines, style.Render(line))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m model) render() string {
 	width := max(1, m.width)
 	brand := lipgloss.NewStyle().Bold(true).Foreground(accent).Render("◈ Tesserix Crew")
-	hint := lipgloss.NewStyle().Foreground(muted).Render("/help  ·  PgUp/PgDn scroll")
+	hint := lipgloss.NewStyle().Foreground(muted).Render("Tab complete · /help · PgUp/PgDn")
 	inner := max(1, width-4)
 	header := brand
 	if inner >= lipgloss.Width(brand)+lipgloss.Width(hint)+4 {
