@@ -15,14 +15,17 @@ against an installed CLI. No API keys are required by Crew itself.
 
 ## Build
 
-Homebrew distribution is being prepared. Once the first release and tap formula
-are published:
+Install the public release with Homebrew:
 
 ```sh
 brew install tesserix/tap/crew
+crew doctor
+crew
 ```
 
 See [Homebrew release setup](docs/HOMEBREW.md).
+
+The next milestone is tracked in the [provider/lifecycle/skills roadmap](docs/ROADMAP.md).
 
 Go 1.24+ on macOS or Linux:
 
