@@ -14,13 +14,14 @@ type Rule struct {
 	Agent    string   `toml:"agent"`
 }
 type Config struct {
-	DefaultAgent string `toml:"default_agent"`
-	Rules        []Rule `toml:"rules"`
+	DefaultAgent string               `toml:"default_agent"`
+	Rules        []Rule               `toml:"rules"`
+	Lifecycles   map[string]Lifecycle `toml:"lifecycles"`
 }
 
 func ValidAgent(v string) bool { return v == "claude" || v == "codex" || v == "gemini" }
 func LoadConfig(home, repo string) (Config, error) {
-	out := Config{DefaultAgent: "claude"}
+	out := Config{DefaultAgent: "claude", Lifecycles: BuiltinLifecycles()}
 	for _, path := range []string{filepath.Join(home, "config.toml"), filepath.Join(repo, ".crew", "config.toml")} {
 		b, e := os.ReadFile(path)
 		if os.IsNotExist(e) {
@@ -37,6 +38,9 @@ func LoadConfig(home, repo string) (Config, error) {
 			out.DefaultAgent = next.DefaultAgent
 		}
 		out.Rules = append(next.Rules, out.Rules...)
+		for name, recipe := range next.Lifecycles {
+			out.Lifecycles[name] = recipe
+		}
 	}
 	if !ValidAgent(out.DefaultAgent) {
 		return out, fmt.Errorf("invalid default agent: %s", out.DefaultAgent)
@@ -49,6 +53,14 @@ func LoadConfig(home, repo string) (Config, error) {
 			if strings.TrimSpace(v) == "" {
 				return out, fmt.Errorf("empty routing term")
 			}
+		}
+	}
+	for name, recipe := range out.Lifecycles {
+		if strings.TrimSpace(name) == "" {
+			return out, fmt.Errorf("lifecycle name is empty")
+		}
+		if err := recipe.Validate(); err != nil {
+			return out, fmt.Errorf("lifecycle %s: %w", name, err)
 		}
 	}
 	return out, nil

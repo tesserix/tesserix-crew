@@ -68,6 +68,19 @@ streams Claude text, and provides a bordered input and working indicator.
 The bottom status area shows repository, branch, changed-entry count, agent/model,
 edit mode, skill count, elapsed time, session, and current task/delegation state.
 
+### Delivery lifecycles
+
+```sh
+crew workflow start "Fix the checkout regression"
+crew workflow next RUN_ID
+crew workflow status --json RUN_ID
+crew workflow approve RUN_ID
+```
+
+The default lifecycle includes design, plan, independent review, manual GitHub
+checkpoints, explicit user approval, TDD implementation, independent testing and
+delivery. Each command advances one stage. See [lifecycle recipes and recovery](docs/LIFECYCLES.md).
+
 ### Permissions
 
 Initial headless adapters use Claude's default permission mode with built-in shell
@@ -94,7 +107,7 @@ agent = "codex"
 ```
 
 Automatic mode currently means deterministic configured routing. Model-based
-classification, staged workflows, and usage-limit fallback are planned. Crew does
+classification and usage-limit fallback are planned. Crew does
 not silently retry a partially executed coding task on another agent.
 
 ### Sessions and context

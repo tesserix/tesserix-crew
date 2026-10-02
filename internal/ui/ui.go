@@ -20,31 +20,33 @@ type progressMsg core.Update
 type finishMsg struct{ err error }
 type tickMsg time.Time
 type repoStatusMsg struct {
-	branch     string
-	changes    int
-	delegation string
-	seq        int64
+	branch                       string
+	changes                      int
+	delegation                   string
+	seq                          int64
+	workflowState, workflowStage string
 }
 type model struct {
-	runner              *core.Runner
-	session             core.Session
-	options             core.RunOptions
-	input               textinput.Model
-	output              viewport.Model
-	lines               []string
-	width, height       int
-	busy                bool
-	status, branch      string
-	changes, skillCount int
-	started             time.Time
-	cancel              context.CancelFunc
-	messages            chan tea.Msg
-	base                context.Context
-	streaming           bool
-	streamLine          int
-	lastActivity        time.Time
-	lastDelegation      int64
-	spinner             spinner.Model
+	runner                       *core.Runner
+	session                      core.Session
+	options                      core.RunOptions
+	input                        textinput.Model
+	output                       viewport.Model
+	lines                        []string
+	width, height                int
+	busy                         bool
+	status, branch               string
+	workflowState, workflowStage string
+	changes, skillCount          int
+	started                      time.Time
+	cancel                       context.CancelFunc
+	messages                     chan tea.Msg
+	base                         context.Context
+	streaming                    bool
+	streamLine                   int
+	lastActivity                 time.Time
+	lastDelegation               int64
+	spinner                      spinner.Model
 }
 
 func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptions) error {
@@ -81,6 +83,9 @@ func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptio
 			m.lines = append(m.lines, label+"\n"+event.Content)
 		}
 	}
+	if state, stage, err := r.Store.WorkflowStatus(s.ID); err == nil {
+		m.workflowState, m.workflowStage = state, stage
+	}
 	m.refresh()
 	_, e = tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	return e
@@ -111,6 +116,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 	case repoStatusMsg:
 		m.branch, m.changes = v.branch, v.changes
+		m.workflowState, m.workflowStage = v.workflowState, v.workflowStage
 		if m.busy && v.seq > m.lastDelegation {
 			m.status = v.delegation
 			m.lastDelegation = v.seq
@@ -121,6 +127,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg {
 			branch, changes := core.GitStatus(repo)
 			result := repoStatusMsg{branch: branch, changes: changes}
+			if runner != nil {
+				if state, stage, err := runner.Store.WorkflowStatus(session); err == nil {
+					result.workflowState, result.workflowStage = state, stage
+				}
+			}
 			if busy && runner != nil {
 				events, err := runner.Store.ContextEvents(session, after)
 				if err == nil {
@@ -179,7 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if v.String() == "tab" && !m.busy {
 			value := m.input.Value()
-			for _, candidate := range []string{"/agent claude", "/agent codex", "/agent auto", "/model", "/skills", "/status", "/context", "/help", "/quit"} {
+			for _, candidate := range []string{"/agent claude", "/agent codex", "/agent auto", "/model", "/skills", "/status", "/context", "/workflow", "/help", "/quit"} {
 				if strings.HasPrefix(candidate, value) && candidate != value {
 					m.input.SetValue(candidate)
 					m.input.CursorEnd()
@@ -252,7 +263,7 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/help":
-		m.add("/agent claude|codex|gemini|auto · /model NAME · /status · /context · /skills · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
+		m.add("/agent claude|codex|gemini|auto · /model NAME · /status · /context · /skills · /workflow · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
 	case "/agent":
 		if len(fields) == 1 {
 			m.input.SetValue("/agent ")
@@ -294,6 +305,29 @@ func (m *model) slash(text string) tea.Cmd {
 		for _, s := range skills {
 			m.add(s.Name + " · " + s.Digest[:12])
 		}
+	case "/workflow":
+		if m.runner == nil {
+			break
+		}
+		w, err := m.runner.Store.Workflow(m.session.ID)
+		if err != nil {
+			m.add("No lifecycle attached to this session. Start one with crew workflow start \"task\".")
+			break
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Workflow %s · %s\n%s\n", w.ID, w.State, w.Task)
+		for i, stage := range w.Recipe.Stages {
+			mark := "○"
+			if i < w.Current {
+				mark = "✓"
+			}
+			if i == w.Current {
+				mark = "→"
+			}
+			fmt.Fprintf(&b, "%s %s · %s\n", mark, stage.Name, stage.Agent)
+		}
+		fmt.Fprintf(&b, "\nUse crew workflow status --json %s to inspect outputs and decisions. Lifecycle actions run from the command line.", w.ID)
+		m.add(b.String())
 	case "/context":
 		skills, e := m.runner.Skills(m.session)
 		if e != nil {

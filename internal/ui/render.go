@@ -121,6 +121,9 @@ func (m model) render() string {
 	inputBox = lipgloss.NewStyle().Padding(0, 2).MaxWidth(width).Render(inputBox)
 
 	state := m.status
+	if !m.busy && m.workflowState != "" {
+		state = m.workflowStage + " · " + m.workflowState
+	}
 	stateColor := muted
 	indicator := "○"
 	switch state {

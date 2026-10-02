@@ -25,3 +25,11 @@ func TestStreamingOutput(t *testing.T) {
 		t.Fatal(out.String(), diagnostics.String())
 	}
 }
+
+func TestWorkflowCommandRejectsInvalidUsage(t *testing.T) {
+	for _, args := range [][]string{{"workflow"}, {"workflow", "unknown"}, {"workflow", "next"}, {"workflow", "start"}, {"workflow", "approve"}} {
+		if err := run(context.Background(), args); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+}

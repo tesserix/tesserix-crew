@@ -21,5 +21,12 @@ shared skills. Users can add, edit, update and remove skills.
 | Independent E2E/browser testing and repair loops | [#6](https://github.com/tesserix/tesserix-crew/issues/6) |
 | Lifecycle, provider, skill and review UI | [#7](https://github.com/tesserix/tesserix-crew/issues/7) |
 
-These are planned capabilities. Current behavior and limitations are described in
-the README and CLI compatibility document.
+Lifecycle foundations are now implemented: pinned built-in/custom recipes, durable
+outputs and decisions, explicit user gates, independent implementation/testing
+providers, revision-checked transitions, crash recovery, and terminal status.
+See [lifecycle usage and limitations](LIFECYCLES.md). GitHub issue actions remain
+manual checkpoints; extensible providers, per-role skills and verified automated
+E2E/browser repair loops remain planned.
+
+Architecture ideas considered from Munder Difflin are documented in
+[architecture references](ARCHITECTURE-REFERENCES.md).

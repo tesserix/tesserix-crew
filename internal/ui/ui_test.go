@@ -103,3 +103,11 @@ func TestAgentDiscoveryAndCompletion(t *testing.T) {
 		t.Fatal("missing completion")
 	}
 }
+
+func TestLifecycleGateVisibleInFooter(t *testing.T) {
+	m := model{input: textinput.New(), output: viewport.New(100, 8), width: 120, session: core.Session{ID: "abc", Repo: "/tmp/repo", Agent: "codex"}, workflowStage: "user-review", workflowState: "awaiting-approval", started: time.Now()}
+	view := m.View()
+	if !strings.Contains(view, "user-review") || !strings.Contains(view, "awaiting-approval") {
+		t.Fatal(view)
+	}
+}

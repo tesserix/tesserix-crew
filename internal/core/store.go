@@ -56,6 +56,7 @@ func OpenStore(home string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS native(session TEXT NOT NULL,agent TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(session,agent));
  CREATE TABLE IF NOT EXISTS context_cursors(session TEXT NOT NULL,agent TEXT NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(session,agent));
 CREATE TABLE IF NOT EXISTS skills(session TEXT PRIMARY KEY,manifest TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS workflows(id TEXT PRIMARY KEY,session TEXT NOT NULL,revision INTEGER NOT NULL,data BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS leases(repo TEXT PRIMARY KEY, owner TEXT NOT NULL, expires INTEGER NOT NULL);`)
 	if err != nil {
 		db.Close()

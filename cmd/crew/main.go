@@ -17,7 +17,7 @@ import (
 	"github.com/tesserix/tesserix-crew/internal/ui"
 )
 
-var version = "0.1.1"
+var version = "0.2.0"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -38,6 +38,7 @@ func help() {
   crew doctor
   crew skills add [--global] PATH
   crew skills list
+  crew workflow start|status|next|approve|reject|record|retry|recover|list|presets
   crew version
 
 Options: --repo PATH, --home PATH, --agent NAME, --model NAME,
@@ -72,6 +73,9 @@ func run(ctx context.Context, args []string) error {
 			fmt.Printf("%s: %s\n  %s · %s\n", name, ver, path, state)
 		}
 		return nil
+	}
+	if verb == "workflow" {
+		return workflow(ctx, args)
 	}
 	if verb == "skills" {
 		return skills(args)
