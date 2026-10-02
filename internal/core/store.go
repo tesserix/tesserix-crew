@@ -30,7 +30,10 @@ type Event struct {
 	Content string `json:"content"`
 	Created string `json:"created"`
 }
-type Store struct{ db *sql.DB }
+type Store struct {
+	db   *sql.DB
+	home string
+}
 
 func stamp() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 func OpenStore(home string) (*Store, error) {
@@ -56,13 +59,16 @@ func OpenStore(home string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS native(session TEXT NOT NULL,agent TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(session,agent));
  CREATE TABLE IF NOT EXISTS context_cursors(session TEXT NOT NULL,agent TEXT NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(session,agent));
 CREATE TABLE IF NOT EXISTS skills(session TEXT PRIMARY KEY,manifest TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS skill_selections(session TEXT PRIMARY KEY,names BLOB NOT NULL);
+ CREATE TABLE IF NOT EXISTS check_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,workflow TEXT NOT NULL,data BLOB NOT NULL);
+ CREATE INDEX IF NOT EXISTS check_runs_workflow ON check_runs(workflow,id);
  CREATE TABLE IF NOT EXISTS workflows(id TEXT PRIMARY KEY,session TEXT NOT NULL,revision INTEGER NOT NULL,data BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS leases(repo TEXT PRIMARY KEY, owner TEXT NOT NULL, expires INTEGER NOT NULL);`)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db}, nil
+	return &Store{db: db, home: home}, nil
 }
 func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Create(repo, agent, parent string) (Session, error) {
@@ -240,4 +246,33 @@ func (s *Store) ContextEvents(id string, after int64) ([]Event, error) {
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) SkillSelection(id string) ([]string, error) {
+	var data []byte
+	err := s.db.QueryRow("SELECT names FROM skill_selections WHERE session=?", id).Scan(&data)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	err = json.Unmarshal(data, &names)
+	return names, err
+}
+func (s *Store) SetSkillSelection(id string, names []string) error {
+	skills, _, err := s.SkillManifest(id)
+	if err != nil {
+		return err
+	}
+	if _, err := FilterSkills(skills, names); err != nil {
+		return err
+	}
+	data, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("INSERT OR REPLACE INTO skill_selections VALUES(?,?)", id, data)
+	return err
 }

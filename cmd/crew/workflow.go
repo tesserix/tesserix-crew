@@ -16,11 +16,11 @@ import (
 
 func workflow(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: crew workflow start|list|status|next|approve|reject|record|retry|recover|presets [options] [ID]")
+		return fmt.Errorf("usage: crew workflow start|list|status|next|run|approve|reject|record|retry|recover|presets|check|evidence|repair [options] [ID]")
 	}
 	action := args[0]
 	switch action {
-	case "start", "list", "status", "next", "approve", "reject", "record", "retry", "recover", "presets":
+	case "start", "list", "status", "next", "approve", "reject", "record", "retry", "recover", "presets", "check", "evidence", "repair", "run":
 	default:
 		return fmt.Errorf("unknown workflow action %q", action)
 	}
@@ -42,6 +42,8 @@ func workflow(ctx context.Context, args []string) error {
 	preset := flags.String("preset", "default", "lifecycle recipe")
 	edits := flags.Bool("allow-edits", false, "enable stage's native edit permissions")
 	note := flags.String("note", "", "user feedback or checkpoint evidence")
+	checkName := flags.String("name", "", "pinned check name")
+	phase := flags.String("phase", "green", "red or green test evidence")
 	asJSON := flags.Bool("json", false, "machine-readable status")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -117,7 +119,43 @@ func workflow(ctx context.Context, args []string) error {
 		if !ok {
 			return fmt.Errorf("unknown lifecycle %q; use crew workflow presets", *preset)
 		}
-		w, err = store.CreateWorkflow(*repo, strings.Join(flags.Args(), " "), *preset, recipe)
+		if recipe.GitHubRepo == "" {
+			recipe.GitHubRepo = config.GitHubRepo
+		}
+		if recipe.GitHubRepo == "" {
+			recipe.GitHubRepo = core.InferGitHubRepo(*repo)
+		}
+		if len(recipe.Checks) == 0 && recipe.TDD {
+			recipe.Checks = config.Checks
+			if len(recipe.Checks) == 0 {
+				recipe.Checks = core.InferChecks(*repo)
+			}
+		}
+		for i := range recipe.Stages {
+			if recipe.Stages[i].Role == "planner" {
+				recipe.Stages[i].Prompt += "\nInclude scoped issue proposals as a fenced crew-issues JSON array of objects with title, body and acceptance (array of strings). This typed block is required for GitHub creation. If no executable checks are pinned and TDD is required, also include a fenced crew-checks JSON array of check objects (name, kind, command array, optional timeout, optional artifact paths). These commands will be presented for user approval before execution."
+			}
+		}
+		activeSkills, skillErr := core.DiscoverSkills(*home, *repo)
+		if skillErr != nil {
+			return skillErr
+		}
+		for i := range recipe.Stages {
+			if recipe.Stages[i].Kind == "agent" && recipe.Stages[i].Skills == nil {
+				if name := core.BuiltinRoleSkill(recipe.Stages[i].Role); name != "" {
+					recipe.Stages[i].Skills = core.SortedSkillNames(activeSkills)
+					if _, exists := activeSkills[name]; !exists {
+						recipe.Stages[i].Skills = append(recipe.Stages[i].Skills, name)
+					}
+				}
+			}
+		}
+		w, err = store.CreateWorkflowWithProviders(*repo, strings.Join(flags.Args(), " "), *preset, recipe, config.Providers)
+		if err == nil {
+			session, _ := store.Get(w.Session)
+			runner := core.Runner{Store: store, Home: *home}
+			err = runner.PinWorkflowSkills(session, recipe)
+		}
 	} else {
 		w, err = store.Workflow(flags.Arg(0))
 		if err != nil {
@@ -127,7 +165,24 @@ func workflow(ctx context.Context, args []string) error {
 			return fmt.Errorf("workflow belongs to %s; select it with --repo", w.Repo)
 		}
 		switch action {
-		case "next":
+		case "check":
+			evidence, e := store.RunCheck(ctx, w.ID, *checkName, *phase)
+			if *asJSON {
+				_ = json.NewEncoder(os.Stdout).Encode(evidence)
+			} else {
+				fmt.Printf("%s %s: exit %d · passed=%v\n%s\n", evidence.Check, evidence.Phase, evidence.ExitCode, evidence.Passed, evidence.Output)
+			}
+			return e
+		case "evidence":
+			evidence, e := store.Evidence(w.ID)
+			if e != nil {
+				return e
+			}
+			return json.NewEncoder(os.Stdout).Encode(evidence)
+		case "repair":
+			w, err = store.RepairWorkflow(w.ID, *note)
+		case "next", "run":
+			config.Providers = w.Providers
 			executable, e := os.Executable()
 			if e != nil {
 				return e
@@ -139,7 +194,20 @@ func workflow(ctx context.Context, args []string) error {
 				}
 				printUpdate(os.Stdout, os.Stderr, update)
 			}
-			w, err = store.RunWorkflow(ctx, w.ID, *edits, runner.Run, emit)
+			for steps := 0; steps < len(w.Recipe.Stages); steps++ {
+				if w.State != "ready" {
+					break
+				}
+				stage := w.Recipe.Stages[w.Current]
+				if stage.Kind == "github-create" || stage.Kind == "github-close" {
+					w, err = store.RunGitHubStage(ctx, w.ID, core.GitHubCLI{})
+				} else {
+					w, err = store.RunWorkflow(ctx, w.ID, *edits, runner.Run, emit)
+				}
+				if err != nil || action == "next" {
+					break
+				}
+			}
 		case "approve", "reject", "record", "retry":
 			w, err = store.DecideWorkflow(w.ID, action, *note)
 		case "recover":
@@ -178,7 +246,22 @@ func printWorkflow(w core.Workflow, asJSON bool) error {
 		if provider == "" {
 			provider = "user"
 		}
+		if stage.Model != "" {
+			provider += " / " + stage.Model
+		}
 		fmt.Printf("%s %-22s %s\n", marker, stage.Name, provider)
+	}
+	if w.Recipe.AllowSelfTest {
+		fmt.Println("Independence policy explicitly relaxed for this recipe.")
+	}
+	for _, issue := range w.Issues {
+		fmt.Println("Issue:", issue.URL)
+	}
+	for _, check := range w.Recipe.Checks {
+		fmt.Printf("Check: %s (%s) %s\n", check.Name, check.Kind, strings.Join(check.Command, " "))
+	}
+	if w.Recipe.NoTDDReason != "" {
+		fmt.Println("TDD exception:", w.Recipe.NoTDDReason)
 	}
 	if len(w.Results) > 0 {
 		result := w.Results[len(w.Results)-1]

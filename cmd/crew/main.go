@@ -17,7 +17,7 @@ import (
 	"github.com/tesserix/tesserix-crew/internal/ui"
 )
 
-var version = "0.2.0"
+var version = "0.3.0"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -37,7 +37,8 @@ func help() {
   crew context [options] SESSION
   crew doctor
   crew skills add [--global] PATH
-  crew skills list
+  crew skills list|show|edit|update|remove|enable|disable|refresh
+  crew providers list|inspect|add|enable|disable
   crew workflow start|status|next|approve|reject|record|retry|recover|list|presets
   crew version
 
@@ -64,21 +65,16 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 	if verb == "doctor" {
-		for _, name := range []string{"claude", "codex", "gemini"} {
-			path, ver := core.Version(ctx, name)
-			state := "supported"
-			if name == "gemini" {
-				state = "adapter unverified"
-			}
-			fmt.Printf("%s: %s\n  %s · %s\n", name, ver, path, state)
-		}
-		return nil
+		return providers(append([]string{"list"}, args...))
 	}
 	if verb == "workflow" {
 		return workflow(ctx, args)
 	}
+	if verb == "providers" {
+		return providers(args)
+	}
 	if verb == "skills" {
-		return skills(args)
+		return skills(ctx, args)
 	}
 	switch verb {
 	case "chat", "run", "resume", "sessions", "context", "mcp":
@@ -124,9 +120,12 @@ func run(ctx context.Context, args []string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("repository is not a directory")
 	}
-	config, e := core.LoadConfig(*home, *repo)
-	if e != nil {
-		return e
+	config := core.Config{DefaultAgent: "claude"}
+	if verb != "mcp" {
+		config, e = core.LoadConfig(*home, *repo)
+		if e != nil {
+			return e
+		}
 	}
 	if verb == "run" && flags.NArg() == 0 {
 		return fmt.Errorf("usage: crew run [options] \"task\"")
@@ -137,7 +136,7 @@ func run(ctx context.Context, args []string) error {
 		if e != nil {
 			return e
 		}
-		command, e := core.AgentCommand(core.AgentOptions{Agent: chosen, Model: *model, Repo: *repo, Edits: *edits})
+		command, e := config.Command(core.AgentOptions{Agent: chosen, Model: *model, Repo: *repo, Edits: *edits})
 		if e != nil {
 			return e
 		}
@@ -211,8 +210,19 @@ func run(ctx context.Context, args []string) error {
 		return e
 	}
 	runner := &core.Runner{Store: store, Home: *home, Executable: executable, Config: config}
+	if w, err := store.Workflow(session.ID); err == nil {
+		runner.Config.Providers = w.Providers
+	}
 	options := core.RunOptions{Agent: *agent, Model: *model, Edits: *edits, Depth: *depth}
 	if verb == "mcp" {
+		if w, err := store.Workflow(session.ID); err == nil {
+			runner.Config.Providers = w.Providers
+		} else {
+			runner.Config, e = core.LoadConfig(*home, *repo)
+			if e != nil {
+				return e
+			}
+		}
 		return runner.ServeMCP(ctx, session, *depth, os.Stdin, os.Stdout)
 	}
 	if verb == "resume" && *agent == "auto" {
@@ -237,69 +247,5 @@ func printUpdate(out, diagnostics io.Writer, v core.Update) {
 		fmt.Fprintln(out, v.Text)
 	default:
 		fmt.Fprintf(diagnostics, "[%s] %s\n", v.Agent, v.Text)
-	}
-}
-func skills(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: crew skills add|list")
-	}
-	verb := args[0]
-	userHome, e := os.UserHomeDir()
-	if e != nil {
-		return e
-	}
-	wd, e := os.Getwd()
-	if e != nil {
-		return e
-	}
-	defaultHome := os.Getenv("CREW_HOME")
-	if defaultHome == "" {
-		defaultHome = filepath.Join(userHome, ".crew")
-	}
-	f := flag.NewFlagSet("skills", flag.ContinueOnError)
-	global := f.Bool("global", false, "install across repositories")
-	home := f.String("home", defaultHome, "Crew home")
-	repo := f.String("repo", wd, "repository")
-	if e = f.Parse(args[1:]); e != nil {
-		return e
-	}
-	*home, e = filepath.Abs(*home)
-	if e != nil {
-		return e
-	}
-	*repo, e = filepath.Abs(*repo)
-	if e != nil {
-		return e
-	}
-	switch verb {
-	case "add":
-		if f.NArg() != 1 {
-			return fmt.Errorf("usage: crew skills add [--global] PATH")
-		}
-		source, e := filepath.Abs(f.Arg(0))
-		if e != nil {
-			return e
-		}
-		root := filepath.Join(*repo, ".crew", "skills")
-		if *global {
-			root = filepath.Join(*home, "skills")
-		}
-		target := filepath.Join(root, filepath.Base(source))
-		if e = core.CopySkill(source, target); e != nil {
-			return e
-		}
-		fmt.Println("Installed", target, "· new sessions will use this skill")
-		return nil
-	case "list":
-		found, e := core.DiscoverSkills(*home, *repo)
-		if e != nil {
-			return e
-		}
-		for name, path := range found {
-			fmt.Printf("%s  %s\n", name, path)
-		}
-		return nil
-	default:
-		return fmt.Errorf("unknown skills command: %s", verb)
 	}
 }

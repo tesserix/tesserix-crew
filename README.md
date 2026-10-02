@@ -77,9 +77,9 @@ crew workflow status --json RUN_ID
 crew workflow approve RUN_ID
 ```
 
-The default lifecycle includes design, plan, independent review, manual GitHub
-checkpoints, explicit user approval, TDD implementation, independent testing and
-delivery. Each command advances one stage. See [lifecycle recipes and recovery](docs/LIFECYCLES.md).
+The default lifecycle includes design, plan, independent review, automated GitHub
+issue actions, explicit user approval, TDD implementation, independent testing and
+delivery. `next` advances one stage; `run` advances until a gate or failure. See [lifecycle recipes and recovery](docs/LIFECYCLES.md).
 
 ### Permissions
 
@@ -170,3 +170,5 @@ optional planned additions; no platform services are needed for local sessions.
 ## License
 
 [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Provider configuration: [providers](docs/PROVIDERS.md). Shared catalog and imports: [skills](docs/SKILLS.md). Executable delivery checks: [lifecycles](docs/LIFECYCLES.md). Optional release signing: [macOS signing](docs/MACOS-SIGNING.md).

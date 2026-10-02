@@ -17,6 +17,7 @@ import (
 
 type AgentOptions struct {
 	Agent, Model, Native, Repo, MCPPath, Executable, Home, Session string
+	Skills                                                         []string
 	Edits                                                          bool
 	Depth                                                          int
 }

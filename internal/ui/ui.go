@@ -103,6 +103,13 @@ func (m *model) add(text string)     { m.lines = append(m.lines, text); m.refres
 func wait(ch <-chan tea.Msg) tea.Cmd { return func() tea.Msg { return <-ch } }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
+	case catalogEditedMsg:
+		if v.err != nil {
+			m.add(v.err.Error())
+		} else {
+			m.add("Skill catalog edited; session revisions remain pinned.")
+		}
+		return m, nil
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(v)
@@ -169,6 +176,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session.Agent = v.Agent
 		return m, wait(m.messages)
 	case finishMsg:
+		if m.runner != nil {
+			if state, stage, err := m.runner.Store.WorkflowStatus(m.session.ID); err == nil {
+				m.workflowState, m.workflowStage = state, stage
+			}
+		}
 		if m.cancel != nil {
 			m.cancel()
 		}
@@ -190,7 +202,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if v.String() == "tab" && !m.busy {
 			value := m.input.Value()
-			for _, candidate := range []string{"/agent claude", "/agent codex", "/agent auto", "/model", "/skills", "/status", "/context", "/workflow", "/help", "/quit"} {
+			for _, candidate := range m.completions() {
 				if strings.HasPrefix(candidate, value) && candidate != value {
 					m.input.SetValue(candidate)
 					m.input.CursorEnd()
@@ -263,15 +275,15 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/help":
-		m.add("/agent claude|codex|gemini|auto · /model NAME · /status · /context · /skills · /workflow · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
+		m.add("/agent claude|codex|gemini|auto · /model NAME · /status · /context · /skills · /providers · /workflow · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
 	case "/agent":
 		if len(fields) == 1 {
 			m.input.SetValue("/agent ")
 			m.input.CursorEnd()
-			m.add("Agents\nclaude · codex · gemini (requires adapter support) · auto\nType /agent NAME to select the next provider. Shared context follows you.")
+			m.add("Agents\n" + strings.Join(append(m.providerNames(), "auto"), " · ") + "\nType /agent NAME to select the next provider. Shared context follows you.")
 			break
 		}
-		if len(fields) != 2 || (!core.ValidAgent(fields[1]) && fields[1] != "auto") {
+		if len(fields) != 2 || (!m.validProvider(fields[1]) && fields[1] != "auto") {
 			m.add("Usage: /agent claude|codex|gemini|auto")
 			break
 		}
@@ -294,40 +306,20 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/status":
 		m.add(fmt.Sprintf("Session %s\nRepository %s\nAgent %s · branch %s · changed entries %d", m.session.ID, m.session.Repo, m.session.Agent, m.branch, m.changes))
 	case "/skills":
-		skills, _, e := m.runner.Store.SkillManifest(m.session.ID)
-		if e != nil {
-			m.add(e.Error())
-			break
-		}
-		if len(skills) == 0 {
-			m.add("No session skills. Install using crew skills add PATH before starting a new session.")
-		}
-		for _, s := range skills {
-			m.add(s.Name + " · " + s.Digest[:12])
-		}
+		return m.skillSlash(fields)
 	case "/workflow":
-		if m.runner == nil {
-			break
-		}
-		w, err := m.runner.Store.Workflow(m.session.ID)
-		if err != nil {
-			m.add("No lifecycle attached to this session. Start one with crew workflow start \"task\".")
-			break
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "Workflow %s · %s\n%s\n", w.ID, w.State, w.Task)
-		for i, stage := range w.Recipe.Stages {
-			mark := "○"
-			if i < w.Current {
-				mark = "✓"
+		return m.workflowSlash(fields)
+	case "/providers":
+		if m.runner != nil {
+			for _, name := range m.runner.Config.ProviderNames() {
+				p := m.runner.Config.Providers[name]
+				state := "configured"
+				if p.Disabled {
+					state = "disabled/unverified"
+				}
+				m.add(name + " · " + p.Auth + " · " + state)
 			}
-			if i == w.Current {
-				mark = "→"
-			}
-			fmt.Fprintf(&b, "%s %s · %s\n", mark, stage.Name, stage.Agent)
 		}
-		fmt.Fprintf(&b, "\nUse crew workflow status --json %s to inspect outputs and decisions. Lifecycle actions run from the command line.", w.ID)
-		m.add(b.String())
 	case "/context":
 		skills, e := m.runner.Skills(m.session)
 		if e != nil {
@@ -350,4 +342,13 @@ func (m model) View() string {
 		return "Starting Crew…"
 	}
 	return m.render()
+}
+
+func (m model) validProvider(name string) bool {
+	config := core.Config{}
+	if m.runner != nil {
+		config = m.runner.Config
+	}
+	_, err := config.Provider(name)
+	return err == nil
 }

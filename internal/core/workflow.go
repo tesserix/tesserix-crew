@@ -11,60 +11,102 @@ import (
 
 // Lifecycle recipes are copied into runs so configuration edits affect only new work.
 type Lifecycle struct {
-	Description string  `toml:"description" json:"description"`
-	Stages      []Stage `toml:"stages" json:"stages"`
+	Description   string  `toml:"description" json:"description"`
+	AllowSelfTest bool    `toml:"allow_self_test" json:"allow_self_test,omitempty"`
+	GitHubRepo    string  `toml:"github_repo" json:"github_repo,omitempty"`
+	Checks        []Check `toml:"checks" json:"checks,omitempty"`
+	TDD           bool    `toml:"tdd" json:"tdd,omitempty"`
+	NoTDDReason   string  `toml:"no_tdd_reason" json:"no_tdd_reason,omitempty"`
+	MaxRepairs    int     `toml:"max_repairs" json:"max_repairs,omitempty"`
+	Stages        []Stage `toml:"stages" json:"stages"`
 }
 type Stage struct {
-	Name   string `toml:"name" json:"name"`
-	Kind   string `toml:"kind" json:"kind"` // agent, approval, checkpoint
-	Role   string `toml:"role" json:"role,omitempty"`
-	Agent  string `toml:"agent" json:"agent,omitempty"`
-	Model  string `toml:"model" json:"model,omitempty"`
-	Prompt string `toml:"prompt" json:"prompt,omitempty"`
-	Edits  bool   `toml:"allow_edits" json:"allow_edits,omitempty"`
+	Name      string   `toml:"name" json:"name"`
+	Kind      string   `toml:"kind" json:"kind"` // agent, approval, checkpoint
+	Role      string   `toml:"role" json:"role,omitempty"`
+	Agent     string   `toml:"agent" json:"agent,omitempty"`
+	Model     string   `toml:"model" json:"model,omitempty"`
+	Prompt    string   `toml:"prompt" json:"prompt,omitempty"`
+	Skills    []string `toml:"skills" json:"skills"`
+	Requires  []string `toml:"requires" json:"requires,omitempty"`
+	DependsOn []string `toml:"depends_on" json:"depends_on,omitempty"`
+	Timeout   string   `toml:"timeout" json:"timeout,omitempty"`
+	Edits     bool     `toml:"allow_edits" json:"allow_edits,omitempty"`
 }
 type StageResult struct {
-	Stage   string `json:"stage"`
-	Attempt int    `json:"attempt"`
-	Agent   string `json:"agent,omitempty"`
-	State   string `json:"state"`
-	Output  string `json:"output"`
-	Created string `json:"created"`
+	Stage    string `json:"stage"`
+	Attempt  int    `json:"attempt"`
+	Agent    string `json:"agent,omitempty"`
+	State    string `json:"state"`
+	Output   string `json:"output"`
+	Revision int    `json:"revision"`
+	Created  string `json:"created"`
 }
 type Workflow struct {
-	ID       string        `json:"id"`
-	Session  string        `json:"session"`
-	Repo     string        `json:"repo"`
-	Task     string        `json:"task"`
-	Preset   string        `json:"preset"`
-	Recipe   Lifecycle     `json:"recipe"`
-	Current  int           `json:"current"`
-	State    string        `json:"state"`
-	Results  []StageResult `json:"results"`
-	Revision int           `json:"revision"`
-	Updated  string        `json:"updated"`
+	ID        string              `json:"id"`
+	Session   string              `json:"session"`
+	Repo      string              `json:"repo"`
+	Task      string              `json:"task"`
+	Preset    string              `json:"preset"`
+	Providers map[string]Provider `json:"providers,omitempty"`
+	Recipe    Lifecycle           `json:"recipe"`
+	Current   int                 `json:"current"`
+	State     string              `json:"state"`
+	Issues    []IssueLink         `json:"issues,omitempty"`
+	Results   []StageResult       `json:"results"`
+	Revision  int                 `json:"revision"`
+	Updated   string              `json:"updated"`
 }
 
 func BuiltinLifecycles() map[string]Lifecycle {
-	return map[string]Lifecycle{
-		"default": {Description: "Reviewed delivery with independent testing and GitHub checkpoints", Stages: []Stage{
+	presets := map[string]Lifecycle{
+		"default": {TDD: true, MaxRepairs: 2, Description: "Reviewed delivery with independent testing and GitHub checkpoints", Stages: []Stage{
 			{Name: "design", Kind: "agent", Role: "designer", Agent: "claude", Prompt: "Clarify the goal, constraints and acceptance criteria. Compare design options; recommend a concrete design. Do not implement."},
 			{Name: "plan", Kind: "agent", Role: "planner", Agent: "claude", Prompt: "Create an implementation plan and proposed GitHub issue scope with acceptance criteria and a test strategy. Do not implement."},
 			{Name: "agent-review", Kind: "agent", Role: "reviewer", Agent: "codex", Prompt: "Independently review the design and plan. Check feasibility, scope, risks and test coverage. Fail if material problems remain; give actionable feedback. Do not implement."},
-			{Name: "create-github-issues", Kind: "checkpoint", Prompt: "Create the scoped GitHub issues using the reviewed plan, then record their URLs here. This version does not create issues automatically."},
+			{Name: "create-github-issues", Kind: "github-create", Prompt: "Create the scoped GitHub issues from the reviewed typed plan, preserving durable issue identities."},
 			{Name: "user-review", Kind: "approval", Prompt: "Review the design, plan, agent review and issue scope. Explicitly approve before implementation, or reject with feedback."},
 			{Name: "implement", Kind: "agent", Role: "implementer", Agent: "codex", Edits: true, Prompt: "Implement only the approved scope using TDD: add a meaningful failing test, implement, then run the relevant tests. Record commands, outcomes and changed files. Do not publish, merge or close issues."},
 			{Name: "test", Kind: "agent", Role: "tester", Agent: "claude", Edits: true, Prompt: "Independently validate the implementation against the acceptance criteria. Run relevant tests, including E2E or browser testing when applicable and available. Record exact commands, results and limitations. Fail or block if required validation cannot be completed. Do not fix production code or publish."},
 			{Name: "deliver", Kind: "agent", Role: "deliverer", Agent: "claude", Prompt: "Prepare the delivery report from implementation and independent testing evidence: changed behavior, checks performed, remaining limitations, and issue closure evidence. Do not publish, merge, or close issues."},
-			{Name: "close-github-issues", Kind: "checkpoint", Prompt: "Review the delivery evidence. Close the completed GitHub issues yourself, then record the issue URLs and closure evidence. This version does not close issues automatically."},
+			{Name: "close-github-issues", Kind: "github-close", Prompt: "Close only the tracked GitHub issues after delivery and required executable checks pass."},
 		}},
 		"review": {Description: "Read-only repository review", Stages: []Stage{
 			{Name: "review", Kind: "agent", Role: "reviewer", Agent: "codex", Prompt: "Review the requested scope and report concrete findings with file references. Do not change files."},
 			{Name: "user-review", Kind: "approval", Prompt: "Review the findings and approve the completed report or reject with feedback."},
 		}},
 	}
+	for _, name := range []string{"bugfix", "maintenance"} {
+		recipe := presets["default"]
+		recipe.Description = "Reviewed " + name + " with TDD and independent testing"
+		recipe.Stages = nil
+		for _, stage := range presets["default"].Stages {
+			if stage.Kind != "github-create" && stage.Kind != "github-close" {
+				recipe.Stages = append(recipe.Stages, stage)
+			}
+		}
+		presets[name] = recipe
+	}
+	return presets
 }
-func (l Lifecycle) Validate() error {
+func (l Lifecycle) Validate() error { return l.ValidateWithProviders(BuiltinProviders()) }
+func (l Lifecycle) ValidateWithProviders(providers map[string]Provider) error {
+	if l.GitHubRepo != "" && !githubSlug.MatchString(l.GitHubRepo) {
+		return fmt.Errorf("github_repo must be owner/repo")
+	}
+	if l.MaxRepairs < 0 || l.MaxRepairs > 10 {
+		return fmt.Errorf("max_repairs must be between 0 and 10")
+	}
+	checks := map[string]bool{}
+	for _, check := range l.Checks {
+		if err := check.Validate(); err != nil {
+			return err
+		}
+		if checks[check.Name] {
+			return fmt.Errorf("duplicate check %s", check.Name)
+		}
+		checks[check.Name] = true
+	}
 	if len(l.Stages) == 0 {
 		return fmt.Errorf("lifecycle needs at least one stage")
 	}
@@ -80,12 +122,23 @@ func (l Lifecycle) Validate() error {
 		if strings.TrimSpace(s.Name) == "" || seen[s.Name] {
 			return fmt.Errorf("stage names must be nonempty and unique: %q", s.Name)
 		}
+		for _, dependency := range s.DependsOn {
+			if !seen[dependency] {
+				return fmt.Errorf("stage %s depends on missing or later stage %s", s.Name, dependency)
+			}
+		}
+		if s.Timeout != "" {
+			duration, err := time.ParseDuration(s.Timeout)
+			if err != nil || duration <= 0 {
+				return fmt.Errorf("stage %s needs a positive timeout duration", s.Name)
+			}
+		}
 		seen[s.Name] = true
 		if strings.TrimSpace(s.Prompt) == "" {
 			return fmt.Errorf("stage %s needs a prompt", s.Name)
 		}
 		switch s.Kind {
-		case "approval", "checkpoint":
+		case "approval", "checkpoint", "github-create", "github-close":
 			if s.Agent != "" || s.Model != "" || s.Edits {
 				return fmt.Errorf("manual stage %s cannot select an agent or edit files", s.Name)
 			}
@@ -93,7 +146,17 @@ func (l Lifecycle) Validate() error {
 				gate = true
 			}
 		case "agent":
-			if _, err := AgentCommand(AgentOptions{Agent: s.Agent, Model: s.Model, Edits: s.Edits}); err != nil {
+			p, ok := providers[s.Agent]
+			if !ok {
+				return fmt.Errorf("stage %s: unknown provider %s", s.Name, s.Agent)
+			}
+			p.Disabled = false
+			for _, required := range s.Requires {
+				if !p.Has(required) {
+					return fmt.Errorf("stage %s requires capability %s from %s", s.Name, required, s.Agent)
+				}
+			}
+			if _, err := (Config{Providers: map[string]Provider{s.Agent: p}}).Command(AgentOptions{Agent: s.Agent, Model: s.Model, Edits: s.Edits}); err != nil {
 				return fmt.Errorf("stage %s: %w", s.Name, err)
 			}
 			if strings.TrimSpace(s.Role) == "" {
@@ -102,7 +165,7 @@ func (l Lifecycle) Validate() error {
 			if s.Edits && !gate {
 				return fmt.Errorf("stage %s enables edits before a user approval gate", s.Name)
 			}
-			if s.Role == "tester" && implementers[s.Agent] {
+			if s.Role == "tester" && implementers[s.Agent] && !l.AllowSelfTest {
 				return fmt.Errorf("tester must use a different provider from implementer")
 			}
 		default:
@@ -126,10 +189,14 @@ func (w *Workflow) settle() {
 	}
 }
 func (s *Store) CreateWorkflow(repo, task, preset string, recipe Lifecycle) (Workflow, error) {
+	return s.CreateWorkflowWithProviders(repo, task, preset, recipe, BuiltinProviders())
+}
+func (s *Store) CreateWorkflowWithProviders(repo, task, preset string, recipe Lifecycle, providers map[string]Provider) (Workflow, error) {
+	task = (Config{Providers: providers}).Redact(task)
 	if strings.TrimSpace(task) == "" {
 		return Workflow{}, fmt.Errorf("workflow task is empty")
 	}
-	if err := recipe.Validate(); err != nil {
+	if err := recipe.ValidateWithProviders(providers); err != nil {
 		return Workflow{}, err
 	}
 	agent := "claude"
@@ -143,7 +210,7 @@ func (s *Store) CreateWorkflow(repo, task, preset string, recipe Lifecycle) (Wor
 	if err != nil {
 		return Workflow{}, err
 	}
-	w := Workflow{ID: session.ID, Session: session.ID, Repo: repo, Task: task, Preset: preset, Recipe: recipe, Updated: stamp()}
+	w := Workflow{ID: session.ID, Session: session.ID, Repo: repo, Task: task, Preset: preset, Recipe: recipe, Providers: providers, Updated: stamp()}
 	w.settle()
 	data, err := json.Marshal(w)
 	if err != nil {
@@ -214,7 +281,7 @@ func (w *Workflow) record(state, output, agent string) {
 			attempt++
 		}
 	}
-	w.Results = append(w.Results, StageResult{Stage: stage.Name, Attempt: attempt, Agent: agent, State: state, Output: output, Created: stamp()})
+	w.Results = append(w.Results, StageResult{Stage: stage.Name, Attempt: attempt, Agent: agent, State: state, Output: output, Created: stamp(), Revision: w.Revision})
 }
 func (s *Store) DecideWorkflow(id, action, note string) (Workflow, error) {
 	w, err := s.Workflow(id)
@@ -250,12 +317,24 @@ func (s *Store) DecideWorkflow(id, action, note string) (Workflow, error) {
 			return w, fmt.Errorf("retry requires a failed, blocked or rejected stage")
 		}
 		w.record("retry-requested", note, "user")
-		if w.State == "rejected" { // Re-plan; replay downstream checkpoints and approvals.
-			for w.Current > 0 {
-				w.Current--
-				if w.Recipe.Stages[w.Current].Kind == "agent" {
+		if w.State == "rejected" { // Re-plan and replay downstream gates. Preserve every rejected decision.
+			target := -1
+			for i := w.Current - 1; i >= 0; i-- {
+				if w.Recipe.Stages[i].Role == "planner" {
+					target = i
 					break
 				}
+			}
+			if target < 0 {
+				for i := w.Current - 1; i >= 0; i-- {
+					if w.Recipe.Stages[i].Kind == "agent" {
+						target = i
+						break
+					}
+				}
+			}
+			if target >= 0 {
+				w.Current = target
 			}
 		}
 		w.settle()
@@ -305,6 +384,15 @@ func (s *Store) RunWorkflow(ctx context.Context, id string, allowEdits bool, run
 		return w, fmt.Errorf("workflow is %s; inspect its status before continuing", w.State)
 	}
 	stage := w.Recipe.Stages[w.Current]
+	if stage.Kind != "agent" {
+		return w, fmt.Errorf("current stage %s requires its dedicated lifecycle action", stage.Kind)
+	}
+	if stage.Timeout != "" {
+		duration, _ := time.ParseDuration(stage.Timeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, duration)
+		defer cancel()
+	}
 	if stage.Edits && !allowEdits {
 		return w, fmt.Errorf("stage %s needs --allow-edits; user approval remains recorded", stage.Name)
 	}
@@ -327,12 +415,59 @@ func (s *Store) RunWorkflow(ctx context.Context, id string, allowEdits bool, run
 	for _, r := range w.Results {
 		fmt.Fprintf(&prompt, "\n[%s attempt %d: %s / %s]\n%s\n", r.Stage, r.Attempt, r.State, r.Agent, r.Output)
 	}
+	for _, check := range w.Recipe.Checks {
+		fmt.Fprintf(&prompt, "\nPinned %s check %s: %s. Use Crew run_check tool (name=%s, phase=red or green) or execute %s workflow check --name %s --phase red|green %s to record actual evidence.\n", check.Kind, check.Name, strings.Join(check.Command, " "), check.Name, "crew", check.Name, w.ID)
+	}
+	if w.Recipe.NoTDDReason != "" {
+		fmt.Fprintf(&prompt, "\nUser-configured TDD exception: %s\n", w.Recipe.NoTDDReason)
+	}
 	prompt.WriteString("\nEnd your response with exactly one standalone line: CREW_STAGE_RESULT: pass, CREW_STAGE_RESULT: fail, or CREW_STAGE_RESULT: blocked. Pass means the requested stage work is complete with concrete evidence; do not claim tests passed without running them. Use blocked for unavailable tools or unresolved questions.\n")
-	output, runErr := run(ctx, session, RunOptions{Agent: stage.Agent, Model: stage.Model, Task: prompt.String(), Edits: stage.Edits}, emit)
+	testerTree := ""
+	var output string
+	var runErr error
+	if stage.Role == "tester" {
+		testerTree, runErr = s.treeDigest(ctx, w.Repo, w.Recipe.Checks)
+	}
+	if runErr == nil {
+		output, runErr = run(ctx, session, RunOptions{Agent: stage.Agent, Model: stage.Model, Task: prompt.String(), Edits: stage.Edits, Skills: stage.Skills}, emit)
+	}
 	if runErr == nil && ctx.Err() != nil {
 		runErr = ctx.Err()
 	}
 	state := StageVerdict(output)
+	if state == "pass" && stage.Role == "tester" {
+		after, err := s.treeDigest(ctx, w.Repo, w.Recipe.Checks)
+		if err != nil || after != testerTree {
+			state = "fail"
+			output += "\nIndependent tester changed repository files outside declared artifacts; route changes through implementation."
+		}
+	}
+	if state == "pass" && stage.Role == "planner" && w.Recipe.TDD && len(w.Recipe.Checks) == 0 {
+		checks, err := ParseCheckProposal(output)
+		if err != nil {
+			state = "blocked"
+			output += "\nCheck plan: " + err.Error()
+		} else {
+			candidate := w.Recipe
+			candidate.Checks = checks
+			if err := candidate.ValidateWithProviders(w.Providers); err != nil {
+				state = "blocked"
+				output += "\nCheck plan: " + err.Error()
+			} else {
+				w.Recipe.Checks = checks
+			}
+		}
+	}
+	if state == "pass" && len(w.Recipe.Checks) > 0 {
+		if err := s.VerifyStageEvidence(w, stage, w.Revision); err != nil {
+			state = "blocked"
+			output += "\nEvidence: " + err.Error()
+		}
+	}
+	if state == "pass" && stage.Role == "implementer" && w.Recipe.TDD && len(w.Recipe.Checks) == 0 && w.Recipe.NoTDDReason == "" {
+		state = "blocked"
+		output += "\nNo test checks are pinned for required TDD."
+	}
 	if runErr != nil {
 		state = "fail"
 		output += "\nError: " + runErr.Error()
@@ -359,7 +494,10 @@ func (s *Store) RunWorkflow(ctx context.Context, id string, allowEdits bool, run
 // A separate renewable lease protects stage execution and crash recovery. The
 // runner still holds its repository lease while the native CLI is executing.
 func (s *Store) claimWorkflow(ctx context.Context, id string) (context.Context, func(), error) {
-	key, owner := "workflow:"+id, id+":"+stamp()
+	return s.claimLease(ctx, "workflow:"+id)
+}
+func (s *Store) claimLease(ctx context.Context, key string) (context.Context, func(), error) {
+	owner := key + ":" + stamp()
 	if err := s.Acquire(key, owner); err != nil {
 		return ctx, nil, err
 	}

@@ -64,7 +64,8 @@ func (r *Runner) ServeMCP(ctx context.Context, s Session, depth int, input io.Re
 			result = map[string]any{}
 		case "tools/list":
 			result = map[string]any{"tools": []any{
-				map[string]any{"name": "delegate", "description": "Ask another subscribed agent for a bounded read-only task: research, content, code suggestions or review. Returns the child session ID and result; the parent integrates changes. No recursive delegation.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"agent": map[string]any{"type": "string", "enum": []string{"claude", "codex", "gemini"}}, "task": map[string]any{"type": "string"}}, "required": []string{"agent", "task"}, "additionalProperties": false}},
+				map[string]any{"name": "delegate", "description": "Ask another subscribed agent for a bounded read-only task: research, content, code suggestions or review. Returns the child session ID and result; the parent integrates changes. No recursive delegation.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"agent": map[string]any{"type": "string", "enum": r.Config.ProviderNames()}, "task": map[string]any{"type": "string"}}, "required": []string{"agent", "task"}, "additionalProperties": false}},
+				map[string]any{"name": "run_check", "description": "Execute a named pinned lifecycle check and record red (expected failure) or green (expected success) evidence. Available only during an authorized implementation/testing stage.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"check": map[string]any{"type": "string"}, "phase": map[string]any{"type": "string", "enum": []string{"red", "green"}}}, "required": []string{"check", "phase"}, "additionalProperties": false}},
 				map[string]any{"name": "session_context", "description": "Read the current Crew session transcript, including delegation results.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
 			}}
 		case "tools/call":
@@ -73,6 +74,8 @@ func (r *Runner) ServeMCP(ctx context.Context, s Session, depth int, input io.Re
 				Arguments struct {
 					Agent string `json:"agent"`
 					Task  string `json:"task"`
+					Check string `json:"check"`
+					Phase string `json:"phase"`
 				} `json:"arguments"`
 			}
 			if e := json.Unmarshal(req.Params, &p); e != nil {
@@ -80,6 +83,14 @@ func (r *Runner) ServeMCP(ctx context.Context, s Session, depth int, input io.Re
 				break
 			}
 			switch p.Name {
+			case "run_check":
+				evidence, err := r.Store.RunCheck(ctx, s.ID, p.Arguments.Check, p.Arguments.Phase)
+				data, _ := json.Marshal(evidence)
+				if err != nil {
+					result = toolResult(string(data)+"\n"+err.Error(), true)
+				} else {
+					result = toolResult(string(data), false)
+				}
 			case "session_context":
 				skills, e := r.Skills(s)
 				if e != nil {
@@ -93,7 +104,7 @@ func (r *Runner) ServeMCP(ctx context.Context, s Session, depth int, input io.Re
 					result = toolResult(text, false)
 				}
 			case "delegate":
-				if !ValidAgent(p.Arguments.Agent) || strings.TrimSpace(p.Arguments.Task) == "" {
+				if !providerValid(r.Config, p.Arguments.Agent) || strings.TrimSpace(p.Arguments.Task) == "" {
 					result = toolResult("delegate requires a valid agent and nonempty task", true)
 					break
 				}
@@ -154,4 +165,9 @@ func (r *Runner) Delegate(ctx context.Context, parent Session, agent, task strin
 		return summary, runErr
 	}
 	return summary, nil
+}
+
+func providerValid(config Config, name string) bool {
+	_, err := config.Provider(name)
+	return err == nil
 }

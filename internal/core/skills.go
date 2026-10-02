@@ -18,6 +18,22 @@ type Skill struct {
 }
 
 func DiscoverSkills(home, repo string) (map[string]string, error) {
+	sources, err := discoverSkillSources(home, repo)
+	if err != nil {
+		return nil, err
+	}
+	states, err := skillState(home, repo)
+	if err != nil {
+		return nil, err
+	}
+	for name, disabled := range states {
+		if disabled {
+			delete(sources, name)
+		}
+	}
+	return sources, nil
+}
+func discoverSkillSources(home, repo string) (map[string]string, error) {
 	out := map[string]string{}
 	for _, root := range []string{filepath.Join(home, "skills"), filepath.Join(repo, ".crew", "skills")} {
 		entries, e := os.ReadDir(root)
@@ -28,7 +44,7 @@ func DiscoverSkills(home, repo string) (map[string]string, error) {
 			return nil, e
 		}
 		for _, entry := range entries {
-			if entry.IsDir() {
+			if entry.IsDir() && validSkillName(entry.Name()) {
 				path := filepath.Join(root, entry.Name())
 				if _, e := os.Stat(filepath.Join(path, "SKILL.md")); e == nil {
 					out[entry.Name()] = path
@@ -121,7 +137,11 @@ func SnapshotSkills(sources map[string]string, root string) ([]Skill, error) {
 			if e != nil {
 				return nil, e
 			}
-			fmt.Fprintf(hash, "%d:%s:%d:", len(rel), rel, len(b))
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Fprintf(hash, "%d:%s:%d:%o:", len(rel), rel, len(b), info.Mode().Perm()&0700)
 			hash.Write(b)
 		}
 		digest := hex.EncodeToString(hash.Sum(nil))

@@ -1,7 +1,7 @@
 # Delivery lifecycles
 
-Crew can run a durable sequence of agent stages, user approvals and manual
-checkpoints. A lifecycle run owns a shared Crew session. Its recipe, provider/model
+Crew can run a durable sequence of agent stages, user approvals, executable checks and GitHub
+actions. A lifecycle run owns a shared Crew session. Its recipe, provider/model
 assignments, outputs, attempts and decisions are saved locally in SQLite.
 Configuration changes affect new runs; existing recipes remain pinned.
 
@@ -27,12 +27,12 @@ The default recipe is:
 | Design | Claude, read-only |
 | Plan | Claude, read-only |
 | Agent review | Codex, read-only |
-| Create GitHub issues | User records issue URLs and scope evidence |
+| Create GitHub issues | Crew creates issues from the reviewed plan |
 | User review | Explicit user approval or rejection |
 | TDD implementation | Codex, edits require `--allow-edits` |
 | Independent testing | Claude, commands require `--allow-edits` |
 | Deliver | Claude prepares a report, read-only |
-| Close GitHub issues | User records issue URLs and closure evidence |
+| Close GitHub issues | Crew validates evidence and closes tracked issues |
 
 ```sh
 crew workflow record --note 'https://github.com/org/repo/issues/42 — approved scope' RUN_ID
@@ -41,9 +41,15 @@ crew workflow next --allow-edits RUN_ID
 ```
 
 Inspect `status --json` to review **all** outputs and decisions before approval.
-Manual checkpoints accept user-supplied evidence; this release does not validate
-URLs, create issues, publish changes, merge pull requests or close issues. Those
-operations are separate from lifecycle advancement.
+GitHub actions use native `gh` authentication. The planner must provide a fenced
+`crew-issues` JSON array with `title`, `body`, and `acceptance` fields. Crew saves
+issue identity and a durable marker, so retries can recover creation responses.
+Closure requires approved preceding stages, passing required checks, and an
+unchanged repository tree. Replanning an already published scope requires manual
+reconciliation; conflicting tracked scope blocks closure.
+
+`crew workflow run --allow-edits RUN_ID` advances through ready stages until a
+gate or failure. Old pinned recipes retain their manual checkpoints.
 
 The `review` preset provides a read-only Codex review followed by user approval:
 
@@ -55,9 +61,8 @@ crew workflow start --preset review "Review the authentication changes"
 
 Agent stages must return a standalone `CREW_STAGE_RESULT: pass`, `fail`, or
 `blocked` line. An absent/invalid verdict blocks advancement. A failed process
-also fails the stage even if its output claims success. Stage verdicts are
-agent-reported results, not an independent test-results parser; inspect the
-recorded test commands and evidence. Testing prompts require applicable E2E or
+also fails the stage even if its output claims success. Agent verdicts alone cannot satisfy configured checks. Crew records real
+subprocess exits, stage revisions, repository fingerprints and artifact hashes. Testing prompts require applicable E2E or
 browser checks and must report unavailable tooling instead of claiming success.
 
 ```sh
@@ -139,3 +144,33 @@ not protection against an adversarial process with access to Crew's data directo
 `crew resume RUN_ID` opens the session conversation. The footer shows the current
 lifecycle stage and state; `/workflow` displays its stage list. Run lifecycle
 commands in a separate terminal. Ordinary chat turns do not advance the lifecycle.
+
+## Executable checks and repair
+
+Configure checks before starting, or review the planner's fenced `crew-checks`
+JSON proposal when no checks were configured or inferred. Commands are argument
+arrays and are pinned with the recipe. Go and Node projects can infer a default
+unit command. Browser/E2E checks require tooling installed in the project; browser
+checks require configured screenshot or trace artifacts.
+
+```sh
+crew workflow check --name unit --phase red RUN_ID
+crew workflow check --name unit --phase green RUN_ID
+crew workflow evidence RUN_ID
+crew workflow repair --note 'Reproduction and expected behavior' RUN_ID
+```
+
+TDD requires a real failed check before passing green evidence, unless the recipe
+records an explicit exception. Missing executables and cancellation do not count
+as red. Failed checks retain available declared artifacts too. Artifact hashes
+verify retained copies; Crew does not guarantee that the check rewrote each
+artifact. Independent testers cannot modify production files. Repair explicitly
+rewinds to implementation and is bounded by the configured repair count.
+
+The `bugfix` and `maintenance` presets supplement `default` and `review`.
+Recipes pin providers, models, stage skills, dependencies, timeouts and checks.
+Custom lifecycles may relax provider separation only with an explicit override.
+
+In the terminal, use `/workflow next`, `/workflow approve`, `/workflow reject
+FEEDBACK`, `/workflow repair NOTE`, and `/workflow evidence`. Edit stages require
+starting the session with `--allow-edits`.

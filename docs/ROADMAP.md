@@ -24,9 +24,12 @@ shared skills. Users can add, edit, update and remove skills.
 Lifecycle foundations are now implemented: pinned built-in/custom recipes, durable
 outputs and decisions, explicit user gates, independent implementation/testing
 providers, revision-checked transitions, crash recovery, and terminal status.
-See [lifecycle usage and limitations](LIFECYCLES.md). GitHub issue actions remain
-manual checkpoints; extensible providers, per-role skills and verified automated
-E2E/browser repair loops remain planned.
+See [lifecycle usage and limitations](LIFECYCLES.md). This milestone adds CLI/API provider plugins, role skill snapshots, Git imports,
+automated tracked GitHub issues, executable TDD evidence, bounded repair and
+terminal lifecycle/catalog controls. Browser integration was exercised with
+scripted providers and real Chrome. Live provider validation, registry imports,
+published-scope reconciliation and configured Apple signing remain follow-up work.
+See [providers](PROVIDERS.md) and [skills](SKILLS.md).
 
 Architecture ideas considered from Munder Difflin are documented in
 [architecture references](ARCHITECTURE-REFERENCES.md).

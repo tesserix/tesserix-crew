@@ -53,8 +53,63 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  signing_config:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check macOS signing configuration
+        id: check
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          if [ -n "$MACOS_CERT_P12_BASE64" ] && [ -n "$MACOS_CERT_PASSWORD" ] && [ -n "$MACOS_SIGNING_IDENTITY" ] && [ -n "$APPLE_NOTARY_KEY_BASE64" ] && [ -n "$APPLE_NOTARY_KEY_ID" ] && [ -n "$APPLE_NOTARY_ISSUER_ID" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Developer ID signing/notarization is not configured. macOS archives retain their Go ad-hoc signatures. See docs/MACOS-SIGNING.md.'
+          fi
+
+  sign_macos:
+    needs: [build, signing_config]
+    if: ${{ needs.signing_config.outputs.enabled == 'true' }}
+    runs-on: macos-14
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crew-darwin-${{ matrix.arch }}
+          path: dist
+      - name: Sign and notarize final macOS archive
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: bash scripts/sign_macos.sh "${GITHUB_REF_NAME#v}" "$TARGET_ARCH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crew-signed-darwin-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   publish:
-    needs: build
+    needs: [build, signing_config, sign_macos]
+    if: ${{ always() && needs.build.result == 'success' && needs.signing_config.result == 'success' && (needs.sign_macos.result == 'success' || needs.sign_macos.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,6 +118,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: crew-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.signing_config.outputs.enabled == 'true' }}
+        with:
+          pattern: crew-signed-darwin-*
           merge-multiple: true
           path: dist
       - name: Generate formula and checksums
