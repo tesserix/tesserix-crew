@@ -22,7 +22,7 @@ type Config struct {
 	Providers    map[string]Provider  `toml:"providers"`
 }
 
-func ValidAgent(v string) bool { return v == "claude" || v == "codex" || v == "gemini" }
+func ValidAgent(v string) bool { return v == "claude" || v == "codex" || v == "gemini" || v == "agy" }
 func LoadConfig(home, repo string) (Config, error) {
 	out := Config{DefaultAgent: "claude", Lifecycles: BuiltinLifecycles(), Providers: BuiltinProviders()}
 	for _, path := range []string{filepath.Join(home, "config.toml"), filepath.Join(repo, ".crew", "config.toml")} {

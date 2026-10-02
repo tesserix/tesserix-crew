@@ -258,6 +258,13 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 		if provider.Kind == "api" {
 			return r.executeAPI(ctx, provider, base, prompt, emit)
 		}
+		if provider.Format == "agy" {
+			// AGY requires the prompt on --print, and does not accept stdin.
+			args = append(args, "--print="+prompt)
+		}
+		if provider.Format == "grok" {
+			args = append(args, "--single", prompt)
+		}
 		return Execute(ctx, args, prompt, s.Repo, emit)
 	}
 	e = execute(func(raw []byte) {

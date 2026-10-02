@@ -17,7 +17,7 @@ import (
 	"github.com/tesserix/tesserix-crew/internal/ui"
 )
 
-var version = "0.3.0"
+var version = "0.3.1"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -30,7 +30,7 @@ func main() {
 func help() {
 	fmt.Println(`Tesserix Crew — one session across your subscribed coding agents
 
-  crew [--agent auto|claude|codex|gemini] [--allow-edits]
+  crew [--agent auto|claude|codex|agy|grok|PROVIDER] [--allow-edits]
   crew run [options] "task"
   crew resume [options] [SESSION]
   crew sessions [options]

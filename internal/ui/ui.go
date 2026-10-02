@@ -275,7 +275,7 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/help":
-		m.add("/agent claude|codex|gemini|auto · /model NAME · /status · /context · /skills · /providers · /workflow · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
+		m.add("/agent NAME|auto · /model NAME · /status · /context · /skills · /providers · /workflow · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
 	case "/agent":
 		if len(fields) == 1 {
 			m.input.SetValue("/agent ")
@@ -284,7 +284,7 @@ func (m *model) slash(text string) tea.Cmd {
 			break
 		}
 		if len(fields) != 2 || (!m.validProvider(fields[1]) && fields[1] != "auto") {
-			m.add("Usage: /agent claude|codex|gemini|auto")
+			m.add("Usage: /agent NAME|auto")
 			break
 		}
 		m.options.Agent = fields[1]

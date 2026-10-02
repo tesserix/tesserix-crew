@@ -43,6 +43,8 @@ func BuiltinProviders() map[string]Provider {
 		"claude": {Kind: "builtin", Format: "claude", Auth: "subscription", Capabilities: []string{"read", "write", "tools", "resume", "stream", "delegate"}},
 		"codex":  {Kind: "builtin", Format: "codex", Auth: "subscription", Capabilities: []string{"read", "write", "tools", "resume", "delegate"}},
 		"gemini": {Kind: "builtin", Format: "gemini", Auth: "subscription", Disabled: true, Capabilities: []string{"read"}},
+		"agy":    {Kind: "cli", Command: []string{"agy", "--output-format", "stream-json", "--print-timeout", "5m"}, Format: "agy", Auth: "subscription", ReadArgs: []string{"--sandbox", "--mode", "plan"}, ModelArgs: []string{"--model", "{model}"}, ResumeArgs: []string{"--conversation", "{session}"}, Capabilities: []string{"read", "tools", "resume", "stream"}},
+		"grok":   {Kind: "cli", Command: []string{"grok", "--output-format", "json"}, Format: "grok", Auth: "subscription", ReadArgs: []string{"--permission-mode", "plan", "--deny", "Write", "--deny", "Edit", "--deny", "Bash"}, ModelArgs: []string{"--model", "{model}"}, Capabilities: []string{"read"}},
 	}
 }
 func (p Provider) Has(capability string) bool {
@@ -99,7 +101,7 @@ func (p Provider) Validate(id string) error {
 		return fmt.Errorf("provider %s needs a command array", id)
 	}
 	switch p.Format {
-	case "claude", "codex", "crew", "text":
+	case "claude", "codex", "crew", "text", "agy", "grok":
 	default:
 		return fmt.Errorf("provider %s has unknown event format %q", id, p.Format)
 	}
@@ -290,6 +292,12 @@ func (c Config) Redact(value string) string {
 	return value
 }
 func NormalizeProvider(p Provider, raw []byte) AgentEvent {
+	if p.Format == "agy" {
+		return normalizeAGY(raw)
+	}
+	if p.Format == "grok" {
+		return normalizeGrok(raw)
+	}
 	if p.Format == "claude" || p.Format == "codex" {
 		return Normalize(p.Format, raw)
 	}
