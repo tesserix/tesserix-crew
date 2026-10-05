@@ -13,6 +13,13 @@ import (
 )
 
 type Update struct{ Kind, Agent, Text string }
+type TurnTiming struct {
+	PrepareMS     int64 `json:"prepare_ms"`
+	FirstEventMS  int64 `json:"first_event_ms"`
+	FirstOutputMS int64 `json:"first_output_ms"`
+	TotalMS       int64 `json:"total_ms"`
+	ContextBytes  int   `json:"context_bytes"`
+}
 type RunOptions struct {
 	Agent, Model, Task string
 	Skills             []string
@@ -112,14 +119,26 @@ func (r *Runner) contextSince(s Session, skills []Skill, after int64) (string, e
 	return r.Config.Redact(b.String()), nil
 }
 func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Update)) (output string, err error) {
+	turnStarted := time.Now()
+	var timing TurnTiming
+	journalTurn := false
 	o.Task = r.Config.Redact(o.Task)
 	if strings.TrimSpace(o.Task) == "" {
 		return "", fmt.Errorf("task is empty")
 	}
-	agent, reason, e := r.Config.Route(o.Task, o.Agent)
+	agent, _, e := r.Config.Route(o.Task, o.Agent)
 	if e != nil {
 		return "", e
 	}
+	emit(Update{"status", agent, "preparing context"})
+	defer func() {
+		timing.TotalMS = time.Since(turnStarted).Milliseconds()
+		data, _ := json.Marshal(timing)
+		if journalTurn {
+			_ = r.Store.Append(s.ID, "timing", agent, string(data))
+		}
+		emit(Update{"timing", agent, string(data)})
+	}()
 	if o.Depth > 1 {
 		return "", fmt.Errorf("maximum delegation depth is one")
 	}
@@ -197,6 +216,7 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	if after > 0 && o.Skills == nil {
 		contextSkills = nil
 	}
+	explicitSkills := o.Skills != nil
 	if o.Skills == nil {
 		o.Skills, e = r.Store.SkillSelection(s.ID)
 		if e != nil {
@@ -210,7 +230,7 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	if e = CheckSkillPrerequisites(skills, provider); e != nil {
 		return "", e
 	}
-	if o.Skills != nil {
+	if o.Skills != nil && (after == 0 || explicitSkills || o.Depth > 0) {
 		contextSkills = skills
 	}
 	briefing, e := r.contextSince(s, contextSkills, after)
@@ -249,7 +269,10 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	if e = r.Store.Append(s.ID, "user", agent, o.Task); e != nil {
 		return "", e
 	}
-	emit(Update{"status", agent, reason})
+	journalTurn = true
+	timing.ContextBytes = len(prompt)
+	timing.PrepareMS = time.Since(turnStarted).Milliseconds()
+	emit(Update{"status", agent, "starting provider"})
 	var result strings.Builder
 	var partial strings.Builder
 	var lastStatus string
@@ -268,6 +291,10 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 		return Execute(ctx, args, prompt, s.Repo, emit)
 	}
 	e = execute(func(raw []byte) {
+		if timing.FirstEventMS == 0 {
+			timing.FirstEventMS = time.Since(turnStarted).Milliseconds()
+			emit(Update{"status", agent, "waiting for model"})
+		}
 		if streamErr != nil {
 			return
 		}
@@ -299,6 +326,10 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 			lastStatus = event.Status
 		}
 		if event.Text != "" {
+			if timing.FirstOutputMS == 0 {
+				timing.FirstOutputMS = time.Since(turnStarted).Milliseconds()
+				emit(Update{"status", agent, "receiving output"})
+			}
 			if event.Delta {
 				partial.WriteString(event.Text)
 				emit(Update{"delta", agent, event.Text})

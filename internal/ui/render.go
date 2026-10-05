@@ -38,6 +38,9 @@ func (m model) transcript() string {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(accent).Render("/agent codex") + "  " + lipgloss.NewStyle().Foreground(muted).Render("switch agent") + "\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(accent).Render("/skills") + "       " + lipgloss.NewStyle().Foreground(muted).Render("inspect shared skills") + "\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(accent).Render("/help") + "         " + lipgloss.NewStyle().Foreground(muted).Render("all commands"))
+		if m.branch == "no git" {
+			b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(muted).Render("Outside a Git repository. Start Crew inside your project, or use --repo PATH."))
+		}
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 	blocks := make([]string, 0, len(m.lines))
@@ -52,7 +55,7 @@ func (m model) transcript() string {
 		switch label {
 		case "You":
 			color = accent
-		case "claude", "codex", "gemini":
+		case "claude", "codex", "gemini", "agy", "grok":
 			color = success
 		case "Error":
 			color = danger
@@ -99,7 +102,8 @@ func renderBody(body string, width int) string {
 }
 
 func (m model) render() string {
-	width := max(1, m.width)
+	// Leave the terminal's final column unused to avoid automatic line wrapping.
+	width := max(1, m.width-1)
 	brand := lipgloss.NewStyle().Bold(true).Foreground(accent).Render("◈ Tesserix Crew")
 	hint := lipgloss.NewStyle().Foreground(muted).Render("Tab complete · /help · PgUp/PgDn")
 	inner := max(1, width-4)
@@ -111,7 +115,7 @@ func (m model) render() string {
 
 	input := m.input.View()
 	if m.busy {
-		input = lipgloss.NewStyle().Foreground(muted).Render("Working…  Ctrl+C to cancel")
+		input = m.spinner.View() + " " + lipgloss.NewStyle().Foreground(foreground).Render(m.status) + "  " + lipgloss.NewStyle().Foreground(muted).Render("Ctrl+C to cancel")
 	}
 	borderColor := edge
 	if m.busy {
@@ -155,12 +159,28 @@ func (m model) render() string {
 	if m.options.Edits {
 		mode = "edits enabled"
 	}
-	top := fmt.Sprintf("%s · %s · %d changed   |   %s", filepath.Base(m.session.Repo), m.branch, m.changes, agent)
-	bottom := fmt.Sprintf("%s   |   %s · skills %d · %s · Session %s", state, mode, m.skillCount, time.Since(m.started).Round(time.Second), m.session.ID)
+	repo := fmt.Sprintf("%s · %s · %d changed", filepath.Base(m.session.Repo), m.branch, m.changes)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(agent)
+	top := provider + "   │   " + repo
+	if inner >= lipgloss.Width(provider)+lipgloss.Width(repo)+6 {
+		top = provider + strings.Repeat(" ", inner-lipgloss.Width(provider)-lipgloss.Width(repo)) + repo
+	}
+	turn := ""
+	if m.busy && !m.turnStarted.IsZero() {
+		turn = " · turn " + time.Since(m.turnStarted).Round(time.Second).String()
+	} else if m.timing.TotalMS > 0 {
+		turn = fmt.Sprintf(" · reply %.1fs", float64(m.timing.TotalMS)/1000)
+		if m.timing.FirstOutputMS > 0 {
+			turn += fmt.Sprintf(" · first output %.1fs", float64(m.timing.FirstOutputMS)/1000)
+		}
+	}
+	bottom := fmt.Sprintf("%s%s   |   %s · skills %d · Session %s", state, turn, mode, m.skillCount, m.session.ID)
 	// Clamp before rendering so narrow terminals retain a stable two-row footer.
 	top = ansi.Truncate(top, inner, "…")
 	bottom = ansi.Truncate(bottom, inner, "…")
 	footer := lipgloss.NewStyle().Foreground(muted).Padding(0, 2).Width(width).MaxWidth(width).Render(top + "\n" + bottom)
-	conversation := lipgloss.NewStyle().Padding(0, 2).MaxWidth(width).Render(m.output.View())
+	// Measure rendered controls instead of assuming border/wrapping height.
+	available := max(1, m.height-lipgloss.Height(header)-lipgloss.Height(inputBox)-lipgloss.Height(footer)-2)
+	conversation := lipgloss.NewStyle().Padding(0, 2).MaxWidth(width).Height(available).MaxHeight(available).Render(m.output.View())
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", conversation, "", inputBox, footer)
 }

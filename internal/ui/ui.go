@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -39,6 +40,8 @@ type model struct {
 	workflowState, workflowStage string
 	changes, skillCount          int
 	started                      time.Time
+	turnStarted                  time.Time
+	timing                       core.TurnTiming
 	cancel                       context.CancelFunc
 	messages                     chan tea.Msg
 	base                         context.Context
@@ -72,6 +75,9 @@ func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptio
 	}
 	m.lines = []string{}
 	for _, event := range events {
+		if event.Kind == "timing" {
+			_ = json.Unmarshal([]byte(event.Content), &m.timing)
+		}
 		if event.Kind == "user" || event.Kind == "assistant" || event.Kind == "error" {
 			label := event.Agent
 			if event.Kind == "user" {
@@ -140,19 +146,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if busy && runner != nil {
-				events, err := runner.Store.ContextEvents(session, after)
+				event, err := runner.Store.LatestDelegation(session, after)
 				if err == nil {
-					for _, event := range events {
-						if event.Kind == "delegation" {
-							result.delegation = event.Agent + " · " + strings.Split(event.Content, "\n")[0]
-							result.seq = event.Seq
-						}
-					}
+					result.delegation = event.Agent + " · " + strings.Split(event.Content, "\n")[0]
+					result.seq = event.Seq
 				}
 			}
 			return result
 		}
 	case progressMsg:
+		if v.Kind == "timing" {
+			_ = json.Unmarshal([]byte(v.Text), &m.timing)
+			return m, wait(m.messages)
+		}
 		m.lastActivity = time.Now()
 		if v.Kind == "delta" {
 			if !m.streaming {
@@ -187,6 +193,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancel = nil
 		m.busy = false
 		m.streaming = false
+		if len(m.lines) > 0 {
+			m.refresh()
+		}
 		m.status = "completed"
 		if v.err != nil {
 			if errors.Is(v.err, context.Canceled) {
@@ -234,6 +243,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busy = true
 			m.input.Blur()
 			m.status = "starting"
+			m.turnStarted = time.Now()
+			m.timing = core.TurnTiming{}
 			m.lastActivity = time.Now()
 			m.messages = make(chan tea.Msg, 64)
 			ctx, cancel := context.WithCancel(m.base)
@@ -305,6 +316,9 @@ func (m *model) slash(text string) tea.Cmd {
 		}
 	case "/status":
 		m.add(fmt.Sprintf("Session %s\nRepository %s\nAgent %s · branch %s · changed entries %d", m.session.ID, m.session.Repo, m.session.Agent, m.branch, m.changes))
+		if m.timing.TotalMS > 0 {
+			m.add(fmt.Sprintf("Last turn\nPreparation %.1fs · first provider event %.1fs · first output %.1fs · total %.1fs\nContext sent: %d bytes", float64(m.timing.PrepareMS)/1000, float64(m.timing.FirstEventMS)/1000, float64(m.timing.FirstOutputMS)/1000, float64(m.timing.TotalMS)/1000, m.timing.ContextBytes))
+		}
 	case "/skills":
 		return m.skillSlash(fields)
 	case "/workflow":

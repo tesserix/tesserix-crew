@@ -172,3 +172,10 @@ optional planned additions; no platform services are needed for local sessions.
 [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Provider configuration: [providers](docs/PROVIDERS.md). Shared catalog and imports: [skills](docs/SKILLS.md). Executable delivery checks: [lifecycles](docs/LIFECYCLES.md). Optional release signing: [macOS signing](docs/MACOS-SIGNING.md).
+
+The footer shows the active provider, repository/branch and real turn timing.
+`/status` includes context preparation, first provider event, first output, total
+latency and context bytes. Native resumes avoid resending unchanged selected
+skills; changing the selection resets context cursors so new instructions arrive.
+Provider/model latency can still dominate a turn. Start inside the repository or
+use `crew --repo /path/to/project` to display its branch.

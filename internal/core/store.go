@@ -273,6 +273,22 @@ func (s *Store) SetSkillSelection(id string, names []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("INSERT OR REPLACE INTO skill_selections VALUES(?,?)", id, data)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("INSERT OR REPLACE INTO skill_selections VALUES(?,?)", id, data); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM context_cursors WHERE session=?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) LatestDelegation(id string, after int64) (Event, error) {
+	var e Event
+	err := s.db.QueryRow("SELECT * FROM events WHERE session=? AND seq>? AND kind='delegation' ORDER BY seq DESC LIMIT 1", id, after).Scan(&e.Seq, &e.Session, &e.Kind, &e.Agent, &e.Content, &e.Created)
+	return e, err
 }

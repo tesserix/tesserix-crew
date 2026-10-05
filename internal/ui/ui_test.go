@@ -30,6 +30,29 @@ func TestStatusAndAgentSwitch(t *testing.T) {
 	}
 }
 
+func TestFooterIncludesTurnTimingAtLargeAndSmallSizes(t *testing.T) {
+	for _, size := range [][2]int{{32, 12}, {80, 24}, {260, 48}, {1904, 50}} {
+		m := model{input: textinput.New(), output: viewport.New(80, 8), session: core.Session{ID: "footer-session", Repo: "/tmp/project", Agent: "agy"}, status: "completed", branch: "main", timing: core.TurnTiming{TotalMS: 1200, FirstOutputMS: 800}}
+		next, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		view := next.(model).View()
+		if lipgloss.Height(view) != size[1] {
+			t.Fatalf("size %v: height %d", size, lipgloss.Height(view))
+		}
+		lines := strings.Split(view, "\n")
+		for _, line := range lines {
+			if lipgloss.Width(line) >= size[0] {
+				t.Fatal("render occupies terminal wrap column")
+			}
+		}
+		if !strings.Contains(lines[len(lines)-1], "completed") {
+			t.Fatalf("footer missing: %q", lines[len(lines)-1])
+		}
+		if size[0] >= 80 && !strings.Contains(lines[len(lines)-1], "reply 1.2s") {
+			t.Fatal("turn duration missing")
+		}
+	}
+}
+
 func TestResponsiveLayout(t *testing.T) {
 	for _, width := range []int{32, 80, 120} {
 		m := model{input: textinput.New(), output: viewport.New(width, 10), session: core.Session{ID: "abc", Repo: "/tmp/my-repo", Agent: "claude"}, branch: "main", status: "ready", started: time.Now()}

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/tesserix/tesserix-crew/internal/core"
@@ -142,6 +143,8 @@ func (m *model) startOperation(operation func(context.Context, func(core.Update)
 	m.busy = true
 	m.input.Blur()
 	m.status = "starting"
+	m.turnStarted = time.Now()
+	m.timing = core.TurnTiming{}
 	m.messages = make(chan tea.Msg, 64)
 	base := m.base
 	if base == nil {
@@ -234,7 +237,9 @@ func (m *model) skillSlash(fields []string) tea.Cmd {
 				m.add(err.Error())
 				return nil
 			}
-			m.options.Skills = names
+			// Load the persisted selection each turn so native resumes can omit
+			// unchanged skill text; explicit stage selections remain separate.
+			m.options.Skills = nil
 			m.add("Session skill selection saved: " + strings.Join(names, ", "))
 			return nil
 		case "enable", "disable", "remove", "show", "edit":
