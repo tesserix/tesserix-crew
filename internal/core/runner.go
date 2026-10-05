@@ -146,7 +146,8 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 		return "", fmt.Errorf("delegated tasks return content; only the parent may edit repository files")
 	}
 	// Validate before recording a user turn or claiming a lease.
-	base := AgentOptions{Agent: agent, Model: o.Model, Repo: s.Repo, Edits: o.Edits, Depth: o.Depth, Executable: r.Executable, Home: r.Home, Session: s.ID}
+	conversation := o.Depth == 0 && isGreeting(o.Task)
+	base := AgentOptions{Agent: agent, Model: o.Model, Repo: s.Repo, Edits: o.Edits, Depth: o.Depth, Executable: r.Executable, Home: r.Home, Session: s.ID, Conversational: conversation}
 	if e = r.Config.CheckProvider(base); e != nil {
 		return "", e
 	}
@@ -244,7 +245,10 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	base.Skills = o.Skills
 	// Re-entering a native session receives the current cross-agent journal, too.
 	prompt := briefing + "\nCurrent user task:\n" + o.Task
-	if o.Depth == 0 && r.Executable != "" && provider.Has("delegate") {
+	if conversation {
+		prompt += "\nThis turn is only a greeting or acknowledgement. Reply briefly and directly. Do not inspect files, git history, repository state, or use tools. Do not summarize the repository."
+	}
+	if !conversation && o.Depth == 0 && r.Executable != "" && provider.Has("delegate") {
 		temp, e := os.CreateTemp("", "crew-mcp-*.json")
 		if e != nil {
 			return "", e

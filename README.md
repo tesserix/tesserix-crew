@@ -179,3 +179,5 @@ latency and context bytes. Native resumes avoid resending unchanged selected
 skills; changing the selection resets context cursors so new instructions arrive.
 Provider/model latency can still dominate a turn. Start inside the repository or
 use `crew --repo /path/to/project` to display its branch.
+
+Standalone greetings skip Crew delegation setup. The built-in Claude adapter disables tools and native MCP servers for these turns; mixed greetings and coding requests retain normal tool access.

@@ -20,6 +20,7 @@ type AgentOptions struct {
 	Skills                                                         []string
 	Edits                                                          bool
 	Depth                                                          int
+	Conversational                                                 bool
 }
 
 func AgentCommand(o AgentOptions) ([]string, error) {
@@ -31,6 +32,9 @@ func AgentCommand(o AgentOptions) ([]string, error) {
 			mode = "acceptEdits"
 		}
 		args = []string{"claude", "--print", "--verbose", "--include-partial-messages", "--output-format", "stream-json", "--permission-mode", mode}
+		if o.Conversational {
+			args = append(args, "--tools", "", "--strict-mcp-config")
+		}
 		// Plan mode expects interactive plan approval. Headless read-only turns
 		// instead disable built-in mutation tools and shell execution.
 		if !o.Edits {
