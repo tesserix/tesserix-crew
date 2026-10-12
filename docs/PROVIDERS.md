@@ -72,3 +72,26 @@ establish that every model call is covered by a subscription.
 AGY and Grok single-turn prompts are passed as process arguments because of their
 CLI contracts. They are not shell commands, but local process inspection can see
 these prompts. Avoid including credentials in task/context content.
+
+## Model selection and native approvals
+
+`/agent` lists installed/configured providers compatible with the current edit mode.
+`/model` reads Codex's installed app-server model catalog without a model task;
+Claude offers native aliases. Plugins can declare `models = ["NAME", ...]`, and
+`crew providers models NAME` prints model choices as JSON. Discovery failures are
+visible and `/model NAME` remains available. Capability filtering uses the adapter's
+declared contract, not inferred access to a particular model.
+
+The experimental `--native-approvals` terminal option was verified with Claude Code
+2.1.287. It uses stream-json input/output, an SDK-host initialization handshake and
+`--permission-prompt-tool stdio`. Requests show the exact tool input; `a` allows
+that invocation, `d` denies it and Ctrl+C cancels. Permission suggestions are not
+forwarded into permanent rules. Native policies may still allow tools without
+asking, and read-only turns retain the mutation-tool restrictions. Requests and
+decisions are journaled. User permission-review time is included in total timing
+and separately recorded as `approval_wait_ms`.
+
+The option is for interactive sessions and does not enable approval bypasses,
+recursive child approvals, or another provider's unverified transport. CLI-only
+workflow execution retains its headless behavior. A permission failure records
+partial results and explains how to inspect/retry or continue in the native CLI.

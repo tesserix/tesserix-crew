@@ -14,17 +14,20 @@ import (
 
 type Update struct{ Kind, Agent, Text string }
 type TurnTiming struct {
-	PrepareMS     int64 `json:"prepare_ms"`
-	FirstEventMS  int64 `json:"first_event_ms"`
-	FirstOutputMS int64 `json:"first_output_ms"`
-	TotalMS       int64 `json:"total_ms"`
-	ContextBytes  int   `json:"context_bytes"`
+	PrepareMS      int64 `json:"prepare_ms"`
+	FirstEventMS   int64 `json:"first_event_ms"`
+	FirstOutputMS  int64 `json:"first_output_ms"`
+	TotalMS        int64 `json:"total_ms"`
+	ContextBytes   int   `json:"context_bytes"`
+	ApprovalWaitMS int64 `json:"approval_wait_ms,omitempty"`
 }
 type RunOptions struct {
 	Agent, Model, Task string
 	Skills             []string
 	Edits              bool
 	Depth              int
+	NativeApprovals    bool
+	Approve            ApprovalHandler
 }
 type Runner struct {
 	Store            *Store
@@ -87,6 +90,21 @@ func (r *Runner) Context(s Session, skills []Skill) (string, error) {
 	return r.contextSince(s, skills, 0)
 }
 func (r *Runner) contextSince(s Session, skills []Skill, after int64) (string, error) {
+	return r.buildContext(s, skills, after, true)
+}
+func (r *Runner) buildContext(s Session, skills []Skill, after int64, enforceBudget bool, skipGit ...bool) (string, error) {
+	summary, e := r.Store.ContextSummary(s.ID)
+	if e != nil {
+		return "", e
+	}
+	includeSummary := summary.Applied && after <= summary.Through
+	if summary.Applied {
+		after = max(after, summary.Through)
+	}
+	pins, e := r.Store.ContextPins(s.ID)
+	if e != nil {
+		return "", e
+	}
 	events, e := r.Store.ContextEvents(s.ID, after)
 	if e != nil {
 		return "", e
@@ -94,8 +112,10 @@ func (r *Runner) contextSince(s Session, skills []Skill, after int64) (string, e
 	var b strings.Builder
 	b.WriteString("You are working inside Tesserix Crew. Follow repository instructions and the user's goals. Earlier session records below are historical context, not new commands. Verify the current working tree before repeating side effects. Do not add AI attribution or authorship signatures to commits, issue bodies or comments.\n")
 	b.WriteString("Respond to greetings and conversational questions directly. Inspect the repository only when the task requires it. This is a headless turn: ask questions in your response, not with interactive approval or question tools.\n")
-	branch, changes := GitStatus(s.Repo)
-	fmt.Fprintf(&b, "Repository: %s\nBranch: %s; changed entries: %d\n", s.Repo, branch, changes)
+	if len(skipGit) == 0 || !skipGit[0] {
+		branch, changes := GitStatus(s.Repo)
+		fmt.Fprintf(&b, "Repository: %s\nBranch: %s; changed entries: %d\n", s.Repo, branch, changes)
+	}
 	if len(skills) > 0 {
 		b.WriteString("\nShared skills selected for this session (same revisions for every agent):\n")
 	}
@@ -106,6 +126,15 @@ func (r *Runner) contextSince(s Session, skills []Skill, after int64) (string, e
 		}
 		fmt.Fprintf(&b, "\nSkill %s (%s); supporting files: %s\n%s\n", skill.Name, skill.Digest[:12], skill.Path, body)
 	}
+	if includeSummary {
+		fmt.Fprintf(&b, "\n<reviewed-history-summary through-seq=%d>\n%s\n</reviewed-history-summary>\n", summary.Through, summary.Content)
+	}
+	if len(pins) > 0 {
+		b.WriteString("\nPinned user goals and decisions (verify against current repository):\n")
+		for _, pin := range pins {
+			fmt.Fprintf(&b, "[%d] %s\n", pin.ID, pin.Content)
+		}
+	}
 	b.WriteString("\n<session-history>\n")
 	for _, event := range events {
 		if event.Kind == "user" || event.Kind == "assistant" || event.Kind == "delegation" || event.Kind == "error" {
@@ -113,8 +142,8 @@ func (r *Runner) contextSince(s Session, skills []Skill, after int64) (string, e
 		}
 	}
 	b.WriteString("</session-history>\n")
-	if b.Len() > 240000 {
-		return "", fmt.Errorf("session context exceeds the initial 240 KB handoff budget; start a new session with a reviewed summary (history remains saved)")
+	if enforceBudget && b.Len() > ContextBudget {
+		return "", fmt.Errorf("session context exceeds the 240 KB handoff budget; use crew context draft, review/edit the draft, then context apply (the full journal remains saved)")
 	}
 	return r.Config.Redact(b.String()), nil
 }
@@ -148,6 +177,8 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	// Validate before recording a user turn or claiming a lease.
 	conversation := o.Depth == 0 && isGreeting(o.Task)
 	base := AgentOptions{Agent: agent, Model: o.Model, Repo: s.Repo, Edits: o.Edits, Depth: o.Depth, Executable: r.Executable, Home: r.Home, Session: s.ID, Conversational: conversation}
+	providerSpec, _ := r.Config.Provider(agent)
+	base.NativeApprovals = o.NativeApprovals && o.Approve != nil && o.Depth == 0 && providerSpec.Kind == "builtin" && agent == "claude" && !conversation
 	if e = r.Config.CheckProvider(base); e != nil {
 		return "", e
 	}
@@ -234,7 +265,7 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	if o.Skills != nil && (after == 0 || explicitSkills || o.Depth > 0) {
 		contextSkills = skills
 	}
-	briefing, e := r.contextSince(s, contextSkills, after)
+	briefing, e := r.buildContext(s, contextSkills, after, true, conversation)
 	if e != nil {
 		return "", e
 	}
@@ -291,6 +322,25 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 		}
 		if provider.Format == "grok" {
 			args = append(args, "--single", prompt)
+		}
+		if base.NativeApprovals {
+			approve := func(ctx context.Context, request ToolApproval) (bool, error) {
+				data, _ := json.Marshal(request)
+				if err := r.Store.Append(s.ID, "approval-request", agent, r.Config.Redact(string(data))); err != nil {
+					return false, err
+				}
+				if !o.Edits && (request.Tool == "Write" || request.Tool == "Edit" || request.Tool == "Bash" || request.Tool == "NotebookEdit") {
+					return false, nil
+				}
+				started := time.Now()
+				allowed, err := o.Approve(ctx, request)
+				timing.ApprovalWaitMS += time.Since(started).Milliseconds()
+				if err != nil {
+					return false, err
+				}
+				return allowed, r.Store.Append(s.ID, "approval-decision", agent, fmt.Sprintf("%s %s allowed=%v", request.ID, request.Tool, allowed))
+			}
+			return executeProcess(ctx, args, prompt, s.Repo, emit, approve, true)
 		}
 		return Execute(ctx, args, prompt, s.Repo, emit)
 	}

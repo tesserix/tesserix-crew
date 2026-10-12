@@ -12,6 +12,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  browser:
+    uses: ./.github/workflows/browser-smoke.yml
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -26,7 +28,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
   build:
-    needs: verify
+    needs: [verify, browser]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -137,9 +139,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes="docs/RELEASE-${version}.md"
+          if [ ! -f "$notes" ]; then
+            notes="$RUNNER_TEMP/crew-release-notes.md"
+            printf '%s\n' 'macOS: brew install --cask tesserix/tap/crew. Linux: brew install tesserix/tap/crew. Existing agent CLI logins are reused.' > "$notes"
+          fi
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/checksums.txt dist/crew.rb dist/crew-cask.rb \
-            --verify-tag --title "Tesserix Crew $GITHUB_REF_NAME" \
-            --notes "macOS: brew install --cask tesserix/tap/crew. Linux: brew install tesserix/tap/crew. Existing agent CLI logins are reused."
+            --verify-tag --title "Tesserix Crew $GITHUB_REF_NAME" --notes-file "$notes"
       - name: Check tap publishing credential
         id: tap
         env:

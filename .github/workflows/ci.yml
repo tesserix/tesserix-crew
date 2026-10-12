@@ -6,6 +6,8 @@ on:
 permissions:
   contents: read
 jobs:
+  browser:
+    uses: ./.github/workflows/browser-smoke.yml
   check:
     strategy:
       matrix:

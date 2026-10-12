@@ -28,7 +28,7 @@ See [Homebrew release setup](docs/HOMEBREW.md).
 The initial macOS release is not notarized; see the linked first-launch instructions
 if Gatekeeper asks you to verify the application.
 
-The next milestone is tracked in the [provider/lifecycle/skills roadmap](docs/ROADMAP.md).
+Implemented features and remaining work are tracked in the [roadmap](docs/ROADMAP.md).
 
 Go 1.24+ on macOS or Linux:
 
@@ -46,13 +46,27 @@ go install ./cmd/crew
 
 ## Use
 
+Start with `crew setup` to choose a project default from available providers.
+It preserves existing routing, skills and lifecycle configuration. Use
+`crew setup --agent codex` for noninteractive setup, or add `--global` for a
+global default. Project defaults take precedence over global defaults.
+
+`crew doctor` reports provider capabilities, missing executables, configured or
+inferred test commands, and suggested fixes. `crew doctor --check-auth` adds
+bounded native login probes for Claude, Codex and GitHub without model calls.
+Other native logins remain explicitly unverified. `crew doctor --json` is useful
+for automation. Diagnostics do not run project tests or change configuration.
+
 ```sh
 crew run --agent codex --dry-run "review the authentication flow"
 crew run --agent claude "explain the failing tests"
 crew run --agent codex --allow-edits "fix the failing tests"
 crew --agent auto --allow-edits
 crew sessions
+crew sessions --pick
+crew sessions --json
 crew resume
+crew resume --latest
 crew resume --repo /path/to/repo SESSION_ID
 crew run --session SESSION_ID --agent codex "continue the implementation"
 crew context SESSION_ID
@@ -60,8 +74,17 @@ crew context SESSION_ID
 
 Flags go **before** positional tasks or session IDs. Interactive commands:
 `/agent claude|codex|gemini|auto`, `/model NAME`, `/status`, `/context`, `/skills`,
-`/help`, `/quit`. Ctrl+C cancels an active task; when idle it exits. PgUp/PgDown
+`/sessions`, `/workflow start`, `/workflow`, `/help`, `/quit`. Ctrl+C cancels an active task; when idle it exits. PgUp/PgDown
 scroll the output.
+
+`crew resume` opens a searchable picker for this project's sessions;
+`--latest` resumes the latest directly. `crew sessions --pick` browses all
+projects. Inside Crew, `/sessions` searches the current project and
+`/sessions all` includes other projects. Search covers task, repository, agent,
+session ID, last activity, workflow state and next action. Switching loads the
+selected session's history and provider configuration, clears the model override,
+and retains the launch-time edit permission. Delegated child sessions remain
+accessible through `crew context CHILD_ID` and are omitted from the picker.
 
 The interface separates user and agent messages, shows subdued tool activity,
 streams Claude text, and provides a bordered input and working indicator.
@@ -81,6 +104,14 @@ The default lifecycle includes design, plan, independent review, automated GitHu
 issue actions, explicit user approval, TDD implementation, independent testing and
 delivery. `next` advances one stage; `run` advances until a gate or failure. See [lifecycle recipes and recovery](docs/LIFECYCLES.md).
 
+Inside Crew, `/workflow start` guides you through choosing a preset and describing
+a task. Creation pins a new session without running agents. `/workflow` opens a
+review screen with all stage outputs, decisions, changed paths, pinned checks and
+recorded evidence. Use `n` for the next stage, `a` then Enter to approve, `r` for
+rejection feedback, and Esc to return to chat. A changed workflow revision requires
+a fresh review before approval. Native tool permissions remain separate from
+these workflow gates.
+
 ### Permissions
 
 Initial headless adapters use Claude's default permission mode with built-in shell
@@ -88,7 +119,12 @@ and mutation tools disabled, or Codex's read-only sandbox. Claude's plan mode is
 avoided because its plan-approval interaction is incompatible with headless turns.
 `--allow-edits` selects Claude's acceptEdits mode or Codex's workspace-write
 sandbox. Crew does not pass permission-bypass flags or replace native credentials.
-Headless approval requests may be denied; there is no unified approval UI yet.
+Headless approval requests may be denied. With Claude Code 2.1.287, the experimental
+`crew --agent claude --native-approvals` bridge forwards native permission requests
+to the terminal: allow one invocation, deny it, or cancel the task. It does not
+persist wider permission rules. Other providers retain their headless permission
+behavior; permission failures include recovery guidance. Workflow approval and
+native tool approval are separate controls.
 Existing native settings, hooks, MCP servers, and repository instructions still
 apply. These modes are not an additional Crew security sandbox.
 
@@ -119,8 +155,14 @@ database; `crew context` prints the readable transcript.
 
 Handoffs include the readable history, shared skill instructions, and current Git
 metadata. Returning to an agent resumes its native session and supplies intervening
-history. A 240 KB initial handoff budget fails explicitly rather than silently
-discarding history. Automatic summarization and selective retrieval are planned.
+history. A 240 KB handoff budget fails explicitly rather than silently discarding history.
+`/context status` shows full-handoff size; `/context pin TEXT` preserves a goal or
+decision; `/context search TEXT` retrieves older turns. `/context draft` creates an
+inactive extractive summary for review. `/context apply` opens that draft and
+requires confirmation; it does not discard the journal. Drafts can omit details:
+edit/import a reviewed version with `crew context draft --file PATH SESSION`.
+Summaries and pins are for ordinary sessions; lifecycle context stays pinned.
+See [context and latency](docs/CONTEXT-AND-LATENCY.md).
 
 A renewable repository lease serializes parent runs within one Crew home. It does
 not coordinate separate Crew homes or coding tools started outside Crew.
@@ -140,8 +182,9 @@ in shared context, with paths to supporting files. Crew does not change vendor
 skill directories or assume identical tool capabilities across agents.
 
 Install skills before creating a session. Existing sessions retain their pinned
-versions. Git/Registry installation, session overrides, prerequisites, and skill
-removal commands are planned.
+versions. Git imports pinned to full commit hashes, session selection and refresh,
+prerequisites, and skill catalog editing/removal are implemented. See
+[shared skills](docs/SKILLS.md). Registry-specific imports remain planned.
 
 ### Agent delegation
 
@@ -181,3 +224,10 @@ Provider/model latency can still dominate a turn. Start inside the repository or
 use `crew --repo /path/to/project` to display its branch.
 
 Standalone greetings skip Crew delegation setup. The built-in Claude adapter disables tools and native MCP servers for these turns; mixed greetings and coding requests retain normal tool access.
+
+`/agent` opens an available-provider picker filtered for the current edit mode.
+`/model` opens a model picker: Codex uses its installed app-server catalog; Claude
+uses native aliases; plugins can declare `models = ["NAME", ...]` in configuration.
+`/model NAME` remains available when catalog discovery is unsupported.
+`crew benchmark --agent claude --runs 2` measures a fresh turn followed by resume;
+use `--task` and `--timeout` for explicit read-only benchmark scenarios.

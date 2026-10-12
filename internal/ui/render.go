@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/tesserix/tesserix-crew/internal/core"
 )
 
 var (
@@ -37,6 +38,8 @@ func (m model) transcript() string {
 		}
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(accent).Render("/agent codex") + "  " + lipgloss.NewStyle().Foreground(muted).Render("switch agent") + "\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(accent).Render("/skills") + "       " + lipgloss.NewStyle().Foreground(muted).Render("inspect shared skills") + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(accent).Render("/sessions") + "     " + lipgloss.NewStyle().Foreground(muted).Render("find and resume work") + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(accent).Render("/workflow start") + " " + lipgloss.NewStyle().Foreground(muted).Render("guided delivery workflow") + "\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(accent).Render("/help") + "         " + lipgloss.NewStyle().Foreground(muted).Render("all commands"))
 		if m.branch == "no git" {
 			b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(muted).Render("Outside a Git repository. Start Crew inside your project, or use --repo PATH."))
@@ -175,6 +178,9 @@ func (m model) render() string {
 		}
 	}
 	bottom := fmt.Sprintf("%s%s   |   %s · skills %d · Session %s", state, turn, mode, m.skillCount, m.session.ID)
+	if m.timing.ContextBytes > 0 {
+		bottom += fmt.Sprintf(" · sent %d%% context", m.timing.ContextBytes*100/core.ContextBudget)
+	}
 	// Clamp before rendering so narrow terminals retain a stable two-row footer.
 	top = ansi.Truncate(top, inner, "…")
 	bottom = ansi.Truncate(bottom, inner, "…")

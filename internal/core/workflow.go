@@ -284,9 +284,17 @@ func (w *Workflow) record(state, output, agent string) {
 	w.Results = append(w.Results, StageResult{Stage: stage.Name, Attempt: attempt, Agent: agent, State: state, Output: output, Created: stamp(), Revision: w.Revision})
 }
 func (s *Store) DecideWorkflow(id, action, note string) (Workflow, error) {
+	return s.DecideWorkflowRevision(id, action, note, -1)
+}
+
+// DecideWorkflowRevision binds a UI decision to the version the user reviewed.
+func (s *Store) DecideWorkflowRevision(id, action, note string, revision int) (Workflow, error) {
 	w, err := s.Workflow(id)
 	if err != nil {
 		return w, err
+	}
+	if revision >= 0 && w.Revision != revision {
+		return w, fmt.Errorf("workflow changed since review; reopen /workflow before deciding")
 	}
 	if w.State == "completed" || w.State == "running" {
 		return w, fmt.Errorf("cannot %s a %s workflow", action, w.State)

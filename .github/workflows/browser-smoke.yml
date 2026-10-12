@@ -1,0 +1,38 @@
+name: Browser regression and repair
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Crew and install pinned browser tools
+        run: |
+          go build -o "$RUNNER_TEMP/crew" ./cmd/crew
+          npm install --prefix "$RUNNER_TEMP/crew-browser" playwright@1.64.0
+          "$RUNNER_TEMP/crew-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Exercise independent browser failure and bounded repair
+        run: |
+          python3 scripts/smoke_browser.py \
+            --crew "$RUNNER_TEMP/crew" \
+            --playwright "$RUNNER_TEMP/crew-browser/node_modules/playwright" \
+            > "$RUNNER_TEMP/crew-browser-result.json"
+          cat "$RUNNER_TEMP/crew-browser-result.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crew-browser-evidence
+          retention-days: 14
+          path: |
+            /tmp/crew-browser-smoke-*/data/evidence/**
+            ${{ runner.temp }}/crew-browser-result.json

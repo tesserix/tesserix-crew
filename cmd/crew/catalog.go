@@ -262,6 +262,12 @@ func providers(args []string) error {
 	}
 	name := o.args[0]
 	switch action {
+	case "models":
+		models, err := config.ModelChoices(context.Background(), name)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(models)
 	case "enable", "disable":
 		return core.SetProviderDisabled(o.home, o.repo, name, o.global, action == "disable")
 	case "inspect":

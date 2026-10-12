@@ -9,7 +9,7 @@ import (
 )
 
 func TestInvalidCommands(t *testing.T) {
-	for _, args := range [][]string{{"bogus"}, {"run"}, {"skills", "add"}, {"skills", "unknown"}} {
+	for _, args := range [][]string{{"bogus"}, {"run"}, {"skills", "add"}, {"skills", "unknown"}, {"sessions", "unexpected"}, {"resume", "--latest", "session-id"}, {"setup", "unexpected"}, {"doctor", "unexpected"}} {
 		if err := run(context.Background(), args); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
