@@ -32,16 +32,16 @@ status area reports repository, Git branch, agent and progress.
 1. Install/verify Gemini CLI using its supported subscription authentication.
 2. Validate each agent with small real tasks and recorded sanitized event fixtures.
 3. Validate native resume and MCP delegation with existing trust settings.
-4. Add native protocol transports for interactive approvals where supported.
+4. Extend native approval transports beyond the verified opt-in Claude SDK-host bridge.
 5. Add async delegation status/cancel tools and model capability discovery.
 
 ## Next milestone: intelligent routing and richer context
 
-1. Task classification and configurable planning/implementation/review workflows.
-2. Reviewable context summaries, repository checkpoints and selective history retrieval.
+1. Model-based task classification; configurable delivery workflows are implemented.
+2. Extend reviewed extractive summaries, pins and history search with model-generated drafts and repository checkpoints.
 3. Explicit fallback policy; inspect partial work before retrying with another agent.
-4. Structured goals, decisions, remaining work, and verification records.
-5. Session-selected skill overrides, prerequisites and Git-based installation.
+4. Structured ordinary-chat goals and remaining work; workflow decisions and executable verification records are implemented.
+5. Extend skill discovery with registry imports; session-selected skills, prerequisites and pinned Git imports are implemented.
 
 ## Next milestone: ecosystem and distribution
 
@@ -49,7 +49,7 @@ status area reports repository, Git branch, agent and progress.
 2. Optional DevAI run reporting and remote delegation.
 3. Isolated worktrees for parallel coding, with parent-controlled integration.
 4. Supported image/asset tools with explicit capability checks.
-5. Homebrew releases, signed/checksummed binaries and broader platform verification.
+5. macOS signing/notarization and broader platform verification; Homebrew releases and checksums are implemented.
 
 ## Acceptance scenario
 

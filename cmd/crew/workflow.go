@@ -115,47 +115,8 @@ func workflow(ctx context.Context, args []string) error {
 	}
 	var w core.Workflow
 	if action == "start" {
-		recipe, ok := config.Lifecycles[*preset]
-		if !ok {
-			return fmt.Errorf("unknown lifecycle %q; use crew workflow presets", *preset)
-		}
-		if recipe.GitHubRepo == "" {
-			recipe.GitHubRepo = config.GitHubRepo
-		}
-		if recipe.GitHubRepo == "" {
-			recipe.GitHubRepo = core.InferGitHubRepo(*repo)
-		}
-		if len(recipe.Checks) == 0 && recipe.TDD {
-			recipe.Checks = config.Checks
-			if len(recipe.Checks) == 0 {
-				recipe.Checks = core.InferChecks(*repo)
-			}
-		}
-		for i := range recipe.Stages {
-			if recipe.Stages[i].Role == "planner" {
-				recipe.Stages[i].Prompt += "\nInclude scoped issue proposals as a fenced crew-issues JSON array of objects with title, body and acceptance (array of strings). This typed block is required for GitHub creation. If no executable checks are pinned and TDD is required, also include a fenced crew-checks JSON array of check objects (name, kind, command array, optional timeout, optional artifact paths). These commands will be presented for user approval before execution."
-			}
-		}
-		activeSkills, skillErr := core.DiscoverSkills(*home, *repo)
-		if skillErr != nil {
-			return skillErr
-		}
-		for i := range recipe.Stages {
-			if recipe.Stages[i].Kind == "agent" && recipe.Stages[i].Skills == nil {
-				if name := core.BuiltinRoleSkill(recipe.Stages[i].Role); name != "" {
-					recipe.Stages[i].Skills = core.SortedSkillNames(activeSkills)
-					if _, exists := activeSkills[name]; !exists {
-						recipe.Stages[i].Skills = append(recipe.Stages[i].Skills, name)
-					}
-				}
-			}
-		}
-		w, err = store.CreateWorkflowWithProviders(*repo, strings.Join(flags.Args(), " "), *preset, recipe, config.Providers)
-		if err == nil {
-			session, _ := store.Get(w.Session)
-			runner := core.Runner{Store: store, Home: *home}
-			err = runner.PinWorkflowSkills(session, recipe)
-		}
+		runner := core.Runner{Store: store, Home: *home}
+		w, err = runner.StartWorkflow(*repo, strings.Join(flags.Args(), " "), *preset)
 	} else {
 		w, err = store.Workflow(flags.Arg(0))
 		if err != nil {

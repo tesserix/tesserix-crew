@@ -34,11 +34,17 @@ func (m model) completions() []string {
 	for _, name := range m.providerNames() {
 		out = append(out, "/agent "+name)
 	}
-	return append(out, "/model", "/skills", "/skills list", "/skills refresh", "/providers", "/status", "/context", "/workflow", "/workflow next", "/workflow approve", "/workflow reject", "/workflow evidence", "/help", "/quit")
+	return append(out, "/model", "/sessions", "/sessions all", "/skills", "/skills list", "/skills refresh", "/providers", "/status", "/context", "/context status", "/context draft", "/context apply", "/context pins", "/context pin", "/context search", "/workflow", "/workflow start", "/workflow next", "/workflow approve", "/workflow reject", "/workflow retry", "/workflow repair", "/workflow evidence", "/help", "/quit")
 }
 func (m *model) workflowSlash(fields []string) tea.Cmd {
 	if m.runner == nil {
 		return nil
+	}
+	if len(fields) > 1 && fields[1] == "start" {
+		return m.openWorkflowStart(fields[2:])
+	}
+	if len(fields) == 1 {
+		return m.openWorkflowReview()
 	}
 	w, err := m.runner.Store.Workflow(m.session.ID)
 	if err != nil {
@@ -76,12 +82,22 @@ func (m *model) workflowSlash(fields []string) tea.Cmd {
 			r := *m.runner
 			r.Config.Providers = w.Providers
 			edits := m.options.Edits
+			approvals := m.options.NativeApprovals
 			return m.startOperation(func(ctx context.Context, emit func(core.Update)) error {
 				if stage.Kind == "github-create" || stage.Kind == "github-close" {
 					_, err := r.Store.RunGitHubStage(ctx, w.ID, core.GitHubCLI{})
 					return err
 				}
-				_, err := r.Store.RunWorkflow(ctx, w.ID, edits, r.Run, emit)
+				run := r.Run
+				if approvals {
+					handler := approvalCallback(m.messages)
+					run = func(ctx context.Context, s core.Session, o core.RunOptions, emit func(core.Update)) (string, error) {
+						o.NativeApprovals = true
+						o.Approve = handler
+						return r.Run(ctx, s, o, emit)
+					}
+				}
+				_, err := r.Store.RunWorkflow(ctx, w.ID, edits, run, emit)
 				return err
 			})
 		default:

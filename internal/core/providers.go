@@ -29,6 +29,7 @@ type Provider struct {
 	Capabilities   []string `toml:"capabilities" json:"capabilities"`
 	Endpoint       string   `toml:"endpoint" json:"endpoint,omitempty"`
 	DefaultModel   string   `toml:"model" json:"model,omitempty"`
+	Models         []string `toml:"models" json:"models,omitempty"`
 	RequestTimeout string   `toml:"request_timeout" json:"request_timeout,omitempty"`
 	MaxTokens      int      `toml:"max_tokens" json:"max_tokens,omitempty"`
 	MaxRounds      int      `toml:"max_rounds" json:"max_rounds,omitempty"`
@@ -191,6 +192,9 @@ func mergeProvider(base, next Provider) Provider {
 	}
 	if next.DefaultModel != "" {
 		base.DefaultModel = next.DefaultModel
+	}
+	if next.Models != nil {
+		base.Models = next.Models
 	}
 	if next.RequestTimeout != "" {
 		base.RequestTimeout = next.RequestTimeout

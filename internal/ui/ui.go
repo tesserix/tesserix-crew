@@ -21,6 +21,7 @@ type progressMsg core.Update
 type finishMsg struct{ err error }
 type tickMsg time.Time
 type repoStatusMsg struct {
+	sessionID                    string
 	branch                       string
 	changes                      int
 	delegation                   string
@@ -50,9 +51,20 @@ type model struct {
 	lastActivity                 time.Time
 	lastDelegation               int64
 	spinner                      spinner.Model
+	panel                        *panel
+	pendingApproval              *approvalMsg
 }
 
 func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptions) error {
+	m, e := newModel(ctx, r, s, o)
+	if e != nil {
+		return e
+	}
+	_, e = tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	return e
+}
+
+func newModel(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptions) (model, error) {
 	input := textinput.New()
 	input.Placeholder = "Describe a task, or /help"
 	input.Prompt = "> "
@@ -66,12 +78,12 @@ func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptio
 	m.branch, m.changes = core.GitStatus(s.Repo)
 	skills, e := r.Skills(s)
 	if e != nil {
-		return e
+		return m, e
 	}
 	m.skillCount = len(skills)
 	events, e := r.Store.Events(s.ID)
 	if e != nil {
-		return e
+		return m, e
 	}
 	m.lines = []string{}
 	for _, event := range events {
@@ -93,15 +105,16 @@ func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptio
 		m.workflowState, m.workflowStage = state, stage
 	}
 	m.refresh()
-	_, e = tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
-	return e
+	return m, nil
 }
 func tick() tea.Cmd           { return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) }) }
 func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, tick(), m.spinner.Tick) }
 func (m *model) refresh() {
 	follow := m.output.AtBottom() || m.output.TotalLineCount() == 0
 	m.output.SetContent(m.transcript())
-	if follow {
+	if len(m.lines) == 0 {
+		m.output.GotoTop()
+	} else if follow {
 		m.output.GotoBottom()
 	}
 }
@@ -109,6 +122,14 @@ func (m *model) add(text string)     { m.lines = append(m.lines, text); m.refres
 func wait(ch <-chan tea.Msg) tea.Cmd { return func() tea.Msg { return <-ch } }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
+	case modelsMsg:
+		cmd := m.receiveModels(v)
+		return m, cmd
+	case approvalMsg:
+		m.pendingApproval = &v
+		m.prepareApproval()
+		m.status = "awaiting native permission"
+		return m, nil
 	case catalogEditedMsg:
 		if v.err != nil {
 			m.add(v.err.Error())
@@ -127,7 +148,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.output.Height = max(1, v.Height-8)
 		m.input.Width = max(1, v.Width-10)
 		m.refresh()
+		if m.panel != nil {
+			m.resizePanel()
+		}
+		if m.pendingApproval != nil {
+			m.prepareApproval()
+		}
 	case repoStatusMsg:
+		if v.sessionID != "" && v.sessionID != m.session.ID {
+			return m, tick()
+		}
 		m.branch, m.changes = v.branch, v.changes
 		m.workflowState, m.workflowStage = v.workflowState, v.workflowStage
 		if m.busy && v.seq > m.lastDelegation {
@@ -139,7 +169,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		repo, busy, runner, session, after := m.session.Repo, m.busy, m.runner, m.session.ID, m.lastDelegation
 		return m, func() tea.Msg {
 			branch, changes := core.GitStatus(repo)
-			result := repoStatusMsg{branch: branch, changes: changes}
+			result := repoStatusMsg{sessionID: session, branch: branch, changes: changes}
 			if runner != nil {
 				if state, stage, err := runner.Store.WorkflowStatus(session); err == nil {
 					result.workflowState, result.workflowStage = state, stage
@@ -182,6 +212,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session.Agent = v.Agent
 		return m, wait(m.messages)
 	case finishMsg:
+		m.pendingApproval = nil
 		if m.runner != nil {
 			if state, stage, err := m.runner.Store.WorkflowStatus(m.session.ID); err == nil {
 				m.workflowState, m.workflowStage = state, stage
@@ -204,11 +235,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.status = "failed"
 				m.add("Error\n" + v.err.Error())
+				if recovery := core.PermissionRecovery(v.err); recovery != "" {
+					m.add("Recovery\n" + recovery)
+				}
 			}
 		}
 		m.input.Focus()
 		return m, textinput.Blink
 	case tea.KeyMsg:
+		if m.pendingApproval != nil {
+			switch v.String() {
+			case "a", "d":
+				m.pendingApproval.reply <- v.String() == "a"
+				m.pendingApproval = nil
+				m.status = "resuming"
+				return m, wait(m.messages)
+			case "ctrl+c":
+				m.cancel()
+				m.pendingApproval = nil
+				return m, wait(m.messages)
+			}
+			var cmd tea.Cmd
+			m.pendingApproval.view, cmd = m.pendingApproval.view.Update(v)
+			return m, cmd
+		}
+		if m.panel != nil && !m.busy {
+			return m.updatePanel(v)
+		}
 		if v.String() == "tab" && !m.busy {
 			value := m.input.Value()
 			for _, candidate := range m.completions() {
@@ -237,7 +290,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input.SetValue("")
 			if strings.HasPrefix(task, "/") {
-				return m, m.slash(task)
+				cmd := m.slash(task)
+				return m, cmd
 			}
 			m.add("You\n" + task)
 			m.busy = true
@@ -254,6 +308,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s := m.session
 			o := m.options
 			o.Task = task
+			if o.NativeApprovals {
+				o.Approve = approvalCallback(ch)
+			}
 			go func() {
 				_, e := r.Run(ctx, s, o, func(u core.Update) {
 					select {
@@ -268,6 +325,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 			return m, wait(ch)
 		}
+	}
+	if m.panel != nil && !m.busy {
+		var cmd tea.Cmd
+		if m.panel.kind == "sessions" || m.panel.kind == "presets" || m.panel.kind == "agents" || m.panel.kind == "models" {
+			next, c := m.panel.picker.Update(msg)
+			m.panel.picker, cmd = next.(picker), c
+		} else if m.panel.kind != "review" && m.panel.kind != "confirm" {
+			m.panel.input, cmd = m.panel.input.Update(msg)
+		}
+		return m, cmd
 	}
 	var commands []tea.Cmd
 	if !m.busy {
@@ -286,13 +353,18 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/help":
-		m.add("/agent NAME|auto · /model NAME · /status · /context · /skills · /providers · /workflow · /quit\nCtrl+C cancels a running task. PgUp/PgDown scroll. /agent selects the next turn; handoff is sent on that turn.")
+		m.add("/sessions [all] · /workflow start · /workflow · /agent NAME|auto · /model NAME · /status · /context · /skills · /providers · /quit\n/session ID resumes a session. Workflow review: n next, a approve, r reject, e evidence; Esc returns to chat. Ctrl+C cancels a running task. PgUp/PgDown scroll.")
+	case "/sessions":
+		return m.openSessions(len(fields) > 1 && fields[1] == "all")
+	case "/session":
+		if len(fields) != 2 {
+			m.add("Usage: /session ID, or /sessions to search")
+		} else if err := m.switchSession(fields[1]); err != nil {
+			m.add("Error\n" + err.Error())
+		}
 	case "/agent":
 		if len(fields) == 1 {
-			m.input.SetValue("/agent ")
-			m.input.CursorEnd()
-			m.add("Agents\n" + strings.Join(append(m.providerNames(), "auto"), " · ") + "\nType /agent NAME to select the next provider. Shared context follows you.")
-			break
+			return m.openAgents()
 		}
 		if len(fields) != 2 || (!m.validProvider(fields[1]) && fields[1] != "auto") {
 			m.add("Usage: /agent NAME|auto")
@@ -308,6 +380,9 @@ func (m *model) slash(text string) tea.Cmd {
 		}
 		m.add("Next agent: " + fields[1] + " · model reset; shared context will accompany the next task")
 	case "/model":
+		if len(fields) == 1 {
+			return m.openModels()
+		}
 		if len(fields) != 2 {
 			m.add("Usage: /model NAME")
 		} else {
@@ -318,6 +393,9 @@ func (m *model) slash(text string) tea.Cmd {
 		m.add(fmt.Sprintf("Session %s\nRepository %s\nAgent %s · branch %s · changed entries %d", m.session.ID, m.session.Repo, m.session.Agent, m.branch, m.changes))
 		if m.timing.TotalMS > 0 {
 			m.add(fmt.Sprintf("Last turn\nPreparation %.1fs · first provider event %.1fs · first output %.1fs · total %.1fs\nContext sent: %d bytes", float64(m.timing.PrepareMS)/1000, float64(m.timing.FirstEventMS)/1000, float64(m.timing.FirstOutputMS)/1000, float64(m.timing.TotalMS)/1000, m.timing.ContextBytes))
+		}
+		if m.timing.ApprovalWaitMS > 0 {
+			m.add(fmt.Sprintf("Native permission review: %.1fs (included in total turn time)", float64(m.timing.ApprovalWaitMS)/1000))
 		}
 	case "/skills":
 		return m.skillSlash(fields)
@@ -335,6 +413,9 @@ func (m *model) slash(text string) tea.Cmd {
 			}
 		}
 	case "/context":
+		if len(fields) > 1 {
+			return m.contextSlash(fields)
+		}
 		skills, e := m.runner.Skills(m.session)
 		if e != nil {
 			m.add(e.Error())
@@ -354,6 +435,12 @@ func (m *model) slash(text string) tea.Cmd {
 func (m model) View() string {
 	if m.width == 0 {
 		return "Starting Crew…"
+	}
+	if m.pendingApproval != nil {
+		return m.approvalView()
+	}
+	if m.panel != nil {
+		return m.panelView()
 	}
 	return m.render()
 }

@@ -132,18 +132,37 @@ prompt. An approval must precede any stage that permits edits; tester providers
 must differ from every provider assigned an implementer role. Unsupported
 adapters are rejected instead of falling back silently.
 
-All agents receive the session's pinned shared skills. Per-role skill selection,
-skill CRUD, provider plugins, test-result verification and automatic repair loops
-remain on the roadmap. Testing uses native workspace-write/acceptEdits permissions
+Stages select and pin shared skills and built-in role instructions. Skill CRUD,
+provider plugins, executable check evidence and explicitly requested bounded
+repair loops are implemented. Fully automatic repair orchestration remains future
+work. Testing uses native workspace-write/acceptEdits permissions
 so tools can run; its instruction to avoid changing production code is not an
 additional filesystem sandbox. Likewise lifecycle gates are application controls,
 not protection against an adversarial process with access to Crew's data directory.
 
-## Terminal status
+## Guided terminal workflow
 
 `crew resume RUN_ID` opens the session conversation. The footer shows the current
-lifecycle stage and state; `/workflow` displays its stage list. Run lifecycle
-commands in a separate terminal. Ordinary chat turns do not advance the lifecycle.
+lifecycle stage and state. `/workflow start` opens a searchable preset menu and a
+task prompt, creates a new pinned workflow session, and opens review without
+executing a stage. `/workflow start PRESET TASK` is the direct alternative.
+
+`/workflow` opens a scrollable review screen with every stage output and decision
+(including historical attempts), current changed paths, issue links, pinned test
+commands, recorded check outcomes and retained artifact paths. Earlier evidence
+is labelled historical; delivery still revalidates the required checks.
+
+- `n`: execute the next ready stage; edit stages require launch-time `--allow-edits`.
+- `a`, then Enter: approve the reviewed workflow revision; Esc cancels confirmation.
+- `r`: reject with feedback; `t`: retry failed/rejected work with feedback.
+- `c`: record checkpoint evidence; `e`: jump to recorded checks.
+- PgUp/PgDn or arrow keys: scroll; Esc: return to the conversation.
+
+Approval does not execute the next stage. A revision change after opening review
+rejects the decision and requires reopening `/workflow`. CLI and slash commands
+remain available; recovery and check execution use the documented CLI commands.
+Ordinary chat turns do not advance the lifecycle. `/sessions` browses project
+sessions; `/sessions all` includes other repositories.
 
 ## Executable checks and repair
 

@@ -21,6 +21,7 @@ type AgentOptions struct {
 	Edits                                                          bool
 	Depth                                                          int
 	Conversational                                                 bool
+	NativeApprovals                                                bool
 }
 
 func AgentCommand(o AgentOptions) ([]string, error) {
@@ -32,6 +33,9 @@ func AgentCommand(o AgentOptions) ([]string, error) {
 			mode = "acceptEdits"
 		}
 		args = []string{"claude", "--print", "--verbose", "--include-partial-messages", "--output-format", "stream-json", "--permission-mode", mode}
+		if o.NativeApprovals {
+			args = append(args, "--input-format", "stream-json", "--permission-prompts", "host", "--permission-prompt-tool", "stdio")
+		}
 		if o.Conversational {
 			args = append(args, "--tools", "", "--strict-mcp-config")
 		}
@@ -228,6 +232,9 @@ func (t *tailWriter) String() string { t.mu.Lock(); defer t.mu.Unlock(); return 
 
 // Execute isolates a process group so cancellation also stops spawned CLI tools.
 func Execute(ctx context.Context, args []string, prompt, repo string, emit func([]byte)) error {
+	return executeProcess(ctx, args, prompt, repo, emit, nil, false)
+}
+func executeProcess(ctx context.Context, args []string, prompt, repo string, emit func([]byte), approve ApprovalHandler, duplex bool) error {
 	if len(args) == 0 {
 		return errors.New("empty agent command")
 	}
@@ -237,6 +244,16 @@ func Execute(ctx context.Context, args []string, prompt, repo string, emit func(
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = repo
 	cmd.Stdin = strings.NewReader(prompt)
+	var input io.WriteCloser
+	var err error
+	if duplex {
+		cmd.Stdin = nil
+		input, err = cmd.StdinPipe()
+		if err != nil {
+			return err
+		}
+		defer input.Close()
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stderr tailWriter
 	cmd.Stderr = &stderr
@@ -266,8 +283,40 @@ func Execute(ctx context.Context, args []string, prompt, repo string, emit func(
 	}()
 	reader := bufio.NewScanner(stdout)
 	reader.Buffer(make([]byte, 65536), 8*1024*1024)
-	for reader.Scan() {
-		emit(append([]byte(nil), reader.Bytes()...))
+	var controlErr error
+	if duplex {
+		controlErr = json.NewEncoder(input).Encode(map[string]any{"type": "control_request", "request_id": "crew-initialize", "request": map[string]any{"subtype": "initialize", "hooks": map[string]any{}}})
+		if controlErr == nil {
+			controlErr = json.NewEncoder(input).Encode(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}, "parent_tool_use_id": nil, "session_id": ""})
+		}
+		if controlErr != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		}
+	}
+	for controlErr == nil && reader.Scan() {
+		raw := append([]byte(nil), reader.Bytes()...)
+		if duplex {
+			handled, e := handleClaudeControl(ctx, raw, input, approve)
+			if e != nil {
+				controlErr = e
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+				break
+			}
+			if handled {
+				continue
+			}
+		}
+		emit(raw)
+		if duplex {
+			var v struct {
+				Type string `json:"type"`
+			}
+			_ = json.Unmarshal(raw, &v)
+			if v.Type == "result" {
+				_ = input.Close()
+				break
+			}
+		}
 	}
 	readErr := reader.Err()
 	if readErr != nil {
@@ -278,6 +327,9 @@ func Execute(ctx context.Context, args []string, prompt, repo string, emit func(
 	<-watchDone
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if controlErr != nil {
+		return controlErr
 	}
 	if readErr != nil {
 		return fmt.Errorf("CLI stream: %w", readErr)
