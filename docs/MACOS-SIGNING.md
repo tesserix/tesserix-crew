@@ -19,6 +19,12 @@ signing. Signing failure prevents release publication when the credential set is
 enabled. If credentials are absent, signing jobs are skipped and the workflow
 explicitly reports that binaries retain Go ad-hoc signatures.
 
+Set the repository Actions variable `MACOS_SIGNING_REQUIRED=true` when enabling
+signed releases. An incomplete credential set then fails the release rather than
+falling back to an unsigned macOS archive. The signing script also checks Apple's
+JSON response for `status: Accepted`; a successful tool process alone cannot
+satisfy the notarization gate.
+
 Each macOS archive is unpacked, its binary is signed with a timestamp and hardened
 runtime, and the signed binary is submitted to Apple's notarization service.
 The final archive contains that same binary. Standalone CLI binaries do not

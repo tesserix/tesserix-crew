@@ -40,7 +40,17 @@ tar -xzf "$archive" -C "$crew_sign_dir/package"
 codesign --force --options runtime --timestamp --keychain "$crew_sign_keychain" --sign "$MACOS_SIGNING_IDENTITY" "$crew_sign_dir/package/crew"
 codesign --verify --strict --verbose=2 "$crew_sign_dir/package/crew"
 ditto -c -k --keepParent "$crew_sign_dir/package/crew" "$crew_sign_dir/notarization.zip"
-xcrun notarytool submit "$crew_sign_dir/notarization.zip" --key "$crew_sign_dir/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --timeout 15m
+xcrun notarytool submit "$crew_sign_dir/notarization.zip" --key "$crew_sign_dir/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --wait --timeout 15m --no-progress --output-format json > "$crew_sign_dir/notarization-result.json"
+python3 - "$crew_sign_dir/notarization-result.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+result = json.loads(Path(sys.argv[1]).read_text())
+if result.get('status') != 'Accepted':
+    raise SystemExit('Apple did not accept notarization; release publication is blocked.')
+print('Apple notarization accepted.')
+PY
 # The notarized Mach-O is unchanged after submission. Its ticket is retrieved
 # online by Gatekeeper; standalone CLI binaries do not support staple tickets.
 tar -czf "$archive" -C "$crew_sign_dir/package" crew LICENSE NOTICE THIRD_PARTY_LICENSES.txt

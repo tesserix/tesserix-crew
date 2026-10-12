@@ -70,10 +70,15 @@ jobs:
           APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          MACOS_SIGNING_REQUIRED: ${{ vars.MACOS_SIGNING_REQUIRED }}
         run: |
           if [ -n "$MACOS_CERT_P12_BASE64" ] && [ -n "$MACOS_CERT_PASSWORD" ] && [ -n "$MACOS_SIGNING_IDENTITY" ] && [ -n "$APPLE_NOTARY_KEY_BASE64" ] && [ -n "$APPLE_NOTARY_KEY_ID" ] && [ -n "$APPLE_NOTARY_ISSUER_ID" ]; then
             echo 'enabled=true' >> "$GITHUB_OUTPUT"
           else
+            if [ "$MACOS_SIGNING_REQUIRED" = 'true' ]; then
+              echo '::error::macOS signing is required, but the complete signing/notarization credential set is missing.'
+              exit 1
+            fi
             echo 'enabled=false' >> "$GITHUB_OUTPUT"
             echo '::notice::Developer ID signing/notarization is not configured. macOS archives retain their Go ad-hoc signatures. See docs/MACOS-SIGNING.md.'
           fi
@@ -139,6 +144,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version="${GITHUB_REF_NAME#v}"
           notes="docs/RELEASE-${version}.md"
           if [ ! -f "$notes" ]; then
             notes="$RUNNER_TEMP/crew-release-notes.md"
