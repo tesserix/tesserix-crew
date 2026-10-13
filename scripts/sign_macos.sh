@@ -32,6 +32,9 @@ PY
 security create-keychain -p "$crew_sign_password" "$crew_sign_keychain"
 security set-keychain-settings -lut 21600 "$crew_sign_keychain"
 security unlock-keychain -p "$crew_sign_password" "$crew_sign_keychain"
+# codesign resolves identities through the user search list even when its
+# --keychain option restricts the signing key lookup.
+security list-keychains -d user -s "$crew_sign_keychain" "$HOME/Library/Keychains/login.keychain-db"
 security import "$crew_sign_dir/certificate.p12" -k "$crew_sign_keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple: -s -k "$crew_sign_password" "$crew_sign_keychain"
 archive="dist/crew_${version}_darwin_${arch}.tar.gz"
