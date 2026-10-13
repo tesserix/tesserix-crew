@@ -60,7 +60,7 @@ func Launch(ctx context.Context, r *core.Runner, s core.Session, o core.RunOptio
 	if e != nil {
 		return e
 	}
-	_, e = tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	_, e = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx)).Run()
 	return e
 }
 

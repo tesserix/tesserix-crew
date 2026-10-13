@@ -114,6 +114,23 @@ func TestStreamingPreservesScrollPosition(t *testing.T) {
 		t.Fatal("streaming moved reader away from older messages")
 	}
 }
+
+func TestMouseWheelScrollsStreamingResponse(t *testing.T) {
+	m := model{output: viewport.New(40, 4), busy: true, lines: []string{"claude\n" + strings.Repeat("line\n", 30)}}
+	m.refresh()
+	bottom := m.output.YOffset
+	next, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = next.(model)
+	if m.output.YOffset >= bottom {
+		t.Fatal("mouse wheel did not scroll back through the response")
+	}
+	scrolled := m.output.YOffset
+	m.lines[0] += "more response\n"
+	m.refresh()
+	if m.output.YOffset != scrolled {
+		t.Fatal("streaming moved the reader after a mouse-wheel scroll")
+	}
+}
 func TestAgentDiscoveryAndCompletion(t *testing.T) {
 	m := model{input: textinput.New(), output: viewport.New(80, 8)}
 	m.slash("/agent")
