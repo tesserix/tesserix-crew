@@ -152,6 +152,10 @@ executing a stage. `/workflow start PRESET TASK` is the direct alternative.
 commands, recorded check outcomes and retained artifact paths. Earlier evidence
 is labelled historical; delivery still revalidates the required checks.
 
+The screen begins with an overview of the current step, completed/pending work,
+role/provider/model assignments, approval gates, latest result and next action.
+Use `d` for detailed review, `o` for the overview, and `f` to reload the saved state.
+
 - `n`: execute the next ready stage; edit stages require launch-time `--allow-edits`.
 - `a`, then Enter: approve the reviewed workflow revision; Esc cancels confirmation.
 - `r`: reject with feedback; `t`: retry failed/rejected work with feedback.
