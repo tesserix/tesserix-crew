@@ -108,7 +108,7 @@ func (m model) render() string {
 	// Leave the terminal's final column unused to avoid automatic line wrapping.
 	width := max(1, m.width-1)
 	brand := lipgloss.NewStyle().Bold(true).Foreground(accent).Render("◈ Tesserix Crew")
-	hint := lipgloss.NewStyle().Foreground(muted).Render("Tab complete · /help · PgUp/PgDn")
+	hint := lipgloss.NewStyle().Foreground(muted).Render("Ctrl+S sessions · Ctrl+N new · /help")
 	inner := max(1, width-4)
 	header := brand
 	if inner >= lipgloss.Width(brand)+lipgloss.Width(hint)+4 {
@@ -118,7 +118,9 @@ func (m model) render() string {
 
 	input := m.input.View()
 	if m.busy {
-		input = m.spinner.View() + " " + lipgloss.NewStyle().Foreground(foreground).Render(m.status) + "  " + lipgloss.NewStyle().Foreground(muted).Render("Ctrl+C to cancel")
+		input = m.spinner.View() + " " + lipgloss.NewStyle().Foreground(foreground).Render(m.progressText()) + "  " + lipgloss.NewStyle().Foreground(muted).Render("Esc / Ctrl+C cancel")
+	} else if m.lastTask != "" && (m.status == "failed" || m.status == "cancelled") {
+		input += "  " + lipgloss.NewStyle().Foreground(muted).Render("/retry to edit and resend")
 	}
 	borderColor := edge
 	if m.busy {
