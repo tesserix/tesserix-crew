@@ -151,6 +151,7 @@ func (m *model) createWorkflow(preset, task string) {
 
 func workflowReviewText(w core.Workflow, evidence []core.Evidence, changes string) string {
 	var b strings.Builder
+	b.WriteString(workflowOverviewText(w, evidence) + "\nDetailed review\n")
 	fmt.Fprintf(&b, "%s\nPreset %s · revision %d · %s\nNext: %s\n\n", w.Task, w.Preset, w.Revision, w.State, core.WorkflowNextAction(w))
 	for i, stage := range w.Recipe.Stages {
 		marker := "○"
@@ -252,7 +253,7 @@ func (m model) panelView() string {
 	width := max(1, min(100, m.width-4))
 	height := max(1, m.height-1)
 	content := p.viewport.View()
-	hint := "Esc chat · e evidence · PgUp/PgDn scroll"
+	hint := "d details · o overview · f refresh · Esc chat · e evidence · PgUp/PgDn"
 	switch p.state {
 	case "ready":
 		hint = "n next · " + hint
@@ -342,6 +343,17 @@ func (m model) updatePanel(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if p.kind == "review" {
 		switch key.String() {
+		case "o":
+			p.viewport.GotoTop()
+			return m, nil
+		case "d":
+			if index := strings.Index(p.content, "\nDetailed review\n"); index >= 0 {
+				p.viewport.SetYOffset(strings.Count(renderBody(p.content[:index], p.viewport.Width), "\n") + 1)
+			}
+			return m, nil
+		case "f":
+			m.openWorkflowReview()
+			return m, nil
 		case "n":
 			if p.state != "ready" {
 				return m, nil
