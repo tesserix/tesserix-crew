@@ -44,7 +44,13 @@ func (m *model) openSessions(all bool) tea.Cmd {
 		m.add("Error\n" + err.Error())
 		return nil
 	}
-	m.panel = &panel{kind: "sessions", picker: newPicker(title, SessionChoices(rows))}
+	choices := SessionChoices(rows)
+	for i := range choices {
+		if choices[i].ID == m.session.ID {
+			choices[i].Label = "Current · " + choices[i].Label
+		}
+	}
+	m.panel = &panel{kind: "sessions", picker: newPicker(title, choices)}
 	m.resizePanel()
 	return textinput.Blink
 }

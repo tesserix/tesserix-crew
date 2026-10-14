@@ -148,6 +148,16 @@ not silently retry a partially executed coding task on another agent.
 
 ### Sessions and context
 
+In the terminal, **Ctrl+S** searches saved sessions and **Ctrl+N** starts a fresh
+session in the current project. The picker marks the current session; `/sessions all`
+also searches other projects. `/new` provides the same fresh-session action.
+
+**Esc** or **Ctrl+C** cancels an active chat task without closing the session.
+`/retry` restores the last chat task as editable input; review it and press Enter
+to send it again. Changes already made by an interrupted task remain in the project.
+While an agent works, progress shows its current activity, elapsed time, and long
+periods without new output. Mouse wheel and PgUp/PgDn scroll the response.
+
 SQLite journal: `~/.crew/sessions.db`. Set `CREW_HOME` or `--home` to relocate it.
 It stores user turns, agent responses, raw structured events, native session IDs,
 delegation results, and pinned skill manifests. Raw events remain available in the

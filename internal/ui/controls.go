@@ -30,7 +30,7 @@ func (m model) providerNames() []string {
 	return names
 }
 func (m model) completions() []string {
-	out := []string{"/agent auto"}
+	out := []string{"/agent auto", "/new", "/retry"}
 	for _, name := range m.providerNames() {
 		out = append(out, "/agent "+name)
 	}

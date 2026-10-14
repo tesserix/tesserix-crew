@@ -50,6 +50,7 @@ type model struct {
 	streamLine                   int
 	lastActivity                 time.Time
 	lastDelegation               int64
+	lastTask                     string
 	spinner                      spinner.Model
 	panel                        *panel
 	pendingApproval              *approvalMsg
@@ -87,6 +88,9 @@ func newModel(ctx context.Context, r *core.Runner, s core.Session, o core.RunOpt
 	}
 	m.lines = []string{}
 	for _, event := range events {
+		if event.Kind == "user" {
+			m.lastTask = event.Content
+		}
 		if event.Kind == "timing" {
 			_ = json.Unmarshal([]byte(event.Content), &m.timing)
 		}
@@ -207,7 +211,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.HasPrefix(v.Text, "tool:") && v.Text != m.status {
 				m.add("↳ " + v.Agent + " · " + v.Text)
 			}
-			m.status = v.Text
+			if m.status != "cancelling" {
+				m.status = v.Text
+			}
 		}
 		m.session.Agent = v.Agent
 		return m, wait(m.messages)
@@ -243,6 +249,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.Focus()
 		return m, textinput.Blink
 	case tea.KeyMsg:
+		if m.panel == nil && m.pendingApproval == nil && !m.busy {
+			switch v.String() {
+			case "ctrl+s":
+				cmd := m.openSessions(false)
+				return m, cmd
+			case "ctrl+n":
+				cmd := m.newSession()
+				return m, cmd
+			}
+		}
 		if m.pendingApproval != nil {
 			switch v.String() {
 			case "a", "d":
@@ -272,9 +288,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if v.String() == "ctrl+c" {
+		if v.String() == "ctrl+c" || (v.String() == "esc" && m.busy && m.panel == nil) {
 			if m.busy {
-				m.cancel()
+				if m.cancel != nil {
+					m.cancel()
+				}
 				m.status = "cancelling"
 				return m, nil
 			}
@@ -294,6 +312,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			m.add("You\n" + task)
+			m.lastTask = task
 			m.busy = true
 			m.input.Blur()
 			m.status = "starting"
@@ -353,9 +372,19 @@ func (m *model) slash(text string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/help":
-		m.add("/sessions [all] · /workflow start · /workflow · /agent NAME|auto · /model NAME · /status · /context · /skills · /providers · /quit\n/session ID resumes a session. Workflow review: n next, a approve, r reject, e evidence; Esc returns to chat. Ctrl+C cancels a running task. PgUp/PgDown scroll.")
+		m.add("/sessions [all] · /new · /retry · /workflow start · /workflow · /agent NAME|auto · /model NAME · /status · /context · /skills · /providers · /quit\nCtrl+S finds sessions; Ctrl+N starts a new session in this project. /session ID resumes a session. /retry loads the previous task for editing; Enter sends it. Workflow review: n next, a approve, r reject, e evidence; Esc returns to chat. Esc or Ctrl+C cancels a running task. Mouse wheel or PgUp/PgDown scroll.")
 	case "/sessions":
 		return m.openSessions(len(fields) > 1 && fields[1] == "all")
+	case "/new":
+		return m.newSession()
+	case "/retry":
+		if m.lastTask == "" {
+			m.add("No previous task to retry in this session.")
+		} else {
+			m.input.SetValue(m.lastTask)
+			m.input.CursorEnd()
+			m.add("Review or edit the previous task, then press Enter to retry. Earlier changes remain in the project.")
+		}
 	case "/session":
 		if len(fields) != 2 {
 			m.add("Usage: /session ID, or /sessions to search")
