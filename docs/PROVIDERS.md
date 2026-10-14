@@ -29,6 +29,13 @@ built-in subscription adapter remains disabled pending contract verification.
 Custom adapters can be registered independently. No silent provider fallback
 occurs when an explicit provider is unavailable.
 
+With `--agent auto`, Crew tries matching configured rules, the default and then
+other eligible providers before starting. Missing executables, required API-key
+variables and incompatible edit capabilities are skipped with a recorded reason.
+`/status` shows the choice after execution or session resume. Provider-specific
+models remain pinned. Authentication failures after startup stop the turn;
+they never trigger an automatic replay on another provider.
+
 ## Antigravity CLI (`agy`)
 
 Crew includes a subscription adapter for the installed `agy` CLI:

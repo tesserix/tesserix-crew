@@ -142,9 +142,12 @@ contains = ["review", "test", "implement"]
 agent = "codex"
 ```
 
-Automatic mode currently means deterministic configured routing. Model-based
-classification and usage-limit fallback are planned. Crew does
-not silently retry a partially executed coding task on another agent.
+Automatic mode tries matching task rules in order, then the configured default,
+then other eligible providers. It checks local installation, required key presence
+and read/write capability before execution. `/status` shows the recorded selection
+reason. A pinned provider or provider-specific model prevents silent fallback.
+Native login validity is not inferred from an installed executable. Crew does not
+retry a partially executed coding task on another agent.
 
 ### Sessions and context
 
