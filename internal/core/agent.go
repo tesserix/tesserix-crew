@@ -49,6 +49,9 @@ func AgentCommand(o AgentOptions) ([]string, error) {
 		}
 		if o.MCPPath != "" {
 			args = append(args, "--mcp-config", o.MCPPath)
+			if o.Edits {
+				args = append(args, "--allowedTools", "mcp__crew__run_check")
+			}
 		}
 	case "codex":
 		sandbox := "read-only"
@@ -60,6 +63,9 @@ func AgentCommand(o AgentOptions) ([]string, error) {
 			command, _ := json.Marshal(o.Executable)
 			mcpArgs, _ := json.Marshal([]string{"mcp", "--home", o.Home, "--repo", o.Repo, "--session", o.Session, "--depth", fmt.Sprint(o.Depth)})
 			args = append(args, "-c", "mcp_servers.crew.command="+string(command), "-c", "mcp_servers.crew.args="+string(mcpArgs))
+			if o.Edits {
+				args = append(args, "-c", `mcp_servers.crew.tools.run_check.approval_mode="approve"`)
+			}
 		}
 		if o.Native != "" {
 			args = append(args, "resume", o.Native)

@@ -424,12 +424,19 @@ func (s *Store) RunWorkflow(ctx context.Context, id string, allowEdits bool, run
 		fmt.Fprintf(&prompt, "\n[%s attempt %d: %s / %s]\n%s\n", r.Stage, r.Attempt, r.State, r.Agent, r.Output)
 	}
 	for _, check := range w.Recipe.Checks {
+		if stage.Role != "implementer" && stage.Role != "tester" {
+			fmt.Fprintf(&prompt, "\nPlanned %s check %s: %s (runs during implementation/testing).\n", check.Kind, check.Name, strings.Join(check.Command, " "))
+			continue
+		}
+		if !check.Applies(stage.Role) {
+			continue
+		}
 		fmt.Fprintf(&prompt, "\nPinned %s check %s: %s. Use Crew run_check tool (name=%s, phase=red or green) or execute %s workflow check --name %s --phase red|green %s to record actual evidence.\n", check.Kind, check.Name, strings.Join(check.Command, " "), check.Name, "crew", check.Name, w.ID)
 	}
 	if w.Recipe.NoTDDReason != "" {
 		fmt.Fprintf(&prompt, "\nUser-configured TDD exception: %s\n", w.Recipe.NoTDDReason)
 	}
-	prompt.WriteString("\nEnd your response with exactly one standalone line: CREW_STAGE_RESULT: pass, CREW_STAGE_RESULT: fail, or CREW_STAGE_RESULT: blocked. Pass means the requested stage work is complete with concrete evidence; do not claim tests passed without running them. Use blocked for unavailable tools or unresolved questions.\n")
+	prompt.WriteString("\nOnly the pinned checks listed for this stage are required here. Checks assigned to other roles are unavailable in this stage; do not treat their absence as a blocker.\nEnd your response with exactly one standalone line: CREW_STAGE_RESULT: pass, CREW_STAGE_RESULT: fail, or CREW_STAGE_RESULT: blocked. Pass means the requested stage work is complete with concrete evidence; do not claim tests passed without running them. Use blocked for unavailable tools or unresolved questions.\n")
 	testerTree := ""
 	var output string
 	var runErr error

@@ -312,6 +312,7 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	var partial strings.Builder
 	var lastStatus string
 	var streamErr error
+	var observedNative string
 	execute := func(emit func([]byte)) error {
 		if provider.Kind == "api" {
 			return r.executeAPI(ctx, provider, base, prompt, emit)
@@ -369,11 +370,7 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 			return
 		}
 		if event.Native != "" && provider.Has("resume") {
-			if er := r.Store.SetNative(s.ID, agent, event.Native); er != nil {
-				streamErr = er
-				cancel()
-				return
-			}
+			observedNative = event.Native
 		}
 		if event.Status != "" && event.Status != lastStatus {
 			emit(Update{"status", agent, event.Status})
@@ -410,6 +407,19 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	})
 	if streamErr != nil {
 		e = streamErr
+	}
+	if e != nil && native != "" && provider.Format == "claude" && strings.Contains(e.Error(), "No conversation found with session ID:") {
+		if er := r.Store.SetNative(s.ID, agent, ""); er != nil {
+			return "", er
+		}
+		e = fmt.Errorf("%w; saved Claude conversation is unavailable. Retry explicitly to start a new conversation with Crew's saved context", e)
+	}
+	// An init event can announce an ID before the provider has persisted its
+	// conversation. Keep an interrupted startup from poisoning the next resume.
+	if observedNative != "" && (e == nil || result.Len() > 0 || partial.Len() > 0) {
+		if er := r.Store.SetNative(s.ID, agent, observedNative); er != nil {
+			e = er
+		}
 	}
 	if e != nil {
 		e = fmt.Errorf("%s", r.Config.Redact(e.Error()))
