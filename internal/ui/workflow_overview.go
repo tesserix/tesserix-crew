@@ -21,6 +21,9 @@ func workflowOverviewText(w core.Workflow, evidence []core.Evidence) string {
 		pending = 0
 	}
 	fmt.Fprintf(&b, "Completed: %d/%d · Pending after current: %d\n\n", completed, total, pending)
+	if w.Recipe.AllowSelfTest {
+		b.WriteString("Implementer/tester independence: explicitly relaxed by this recipe\n\n")
+	}
 	for i, stage := range w.Recipe.Stages {
 		state := "pending"
 		if i < completed {
@@ -34,9 +37,23 @@ func workflowOverviewText(w core.Workflow, evidence []core.Evidence) string {
 		}
 		if stage.Agent != "" {
 			assignment += " · " + stage.Agent
+			model := stage.Model
+			provider, err := (core.Config{Providers: w.Providers}).Provider(stage.Agent)
+			if model == "" && err == nil {
+				model = provider.DefaultModel
+			}
+			if model == "" {
+				model = "provider default"
+			}
+			assignment += " / " + model
+			if err == nil {
+				assignment += "\n   Capabilities: " + strings.Join(provider.Capabilities, ", ")
+			} else {
+				assignment += "\n   Unavailable: " + err.Error()
+			}
 		}
-		if stage.Model != "" {
-			assignment += " / " + stage.Model
+		if len(stage.Skills) > 0 {
+			assignment += "\n   Pinned skills: " + strings.Join(stage.Skills, ", ")
 		}
 		fmt.Fprintf(&b, "%d. %s · %s\n   %s\n", i+1, stage.Name, state, assignment)
 	}

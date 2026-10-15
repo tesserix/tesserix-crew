@@ -57,3 +57,18 @@ func TestOverviewNavigationPreservesApprovalGate(t *testing.T) {
 		t.Fatal("refresh changed approval state")
 	}
 }
+
+func TestRoleOverviewReportsPinnedModelCapabilitiesAndPolicy(t *testing.T) {
+	providers := core.BuiltinProviders()
+	p := providers["claude"]
+	p.DefaultModel = "pinned-default"
+	providers["claude"] = p
+	w := core.Workflow{State: "ready", Providers: providers, Recipe: core.Lifecycle{AllowSelfTest: true,
+		Stages: []core.Stage{{Name: "plan", Kind: "agent", Role: "planner", Agent: "claude", Skills: []string{"crew-plan"}}}}}
+	text := workflowOverviewText(w, nil)
+	for _, want := range []string{"planner · claude / pinned-default", "Capabilities: read, write, tools", "Pinned skills: crew-plan", "independence: explicitly relaxed"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing role detail %q in %s", want, text)
+		}
+	}
+}
