@@ -51,6 +51,7 @@ type model struct {
 	lastActivity                 time.Time
 	lastDelegation               int64
 	lastTask                     string
+	routingReason                string
 	spinner                      spinner.Model
 	panel                        *panel
 	pendingApproval              *approvalMsg
@@ -88,6 +89,9 @@ func newModel(ctx context.Context, r *core.Runner, s core.Session, o core.RunOpt
 	}
 	m.lines = []string{}
 	for _, event := range events {
+		if event.Kind == "routing" {
+			m.routingReason = event.Content
+		}
 		if event.Kind == "user" {
 			m.lastTask = event.Content
 		}
@@ -189,6 +193,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return result
 		}
 	case progressMsg:
+		if v.Kind == "routing" {
+			m.routingReason = v.Text
+			m.session.Agent = v.Agent
+			return m, wait(m.messages)
+		}
 		if v.Kind == "timing" {
 			_ = json.Unmarshal([]byte(v.Text), &m.timing)
 			return m, wait(m.messages)
@@ -420,6 +429,9 @@ func (m *model) slash(text string) tea.Cmd {
 		}
 	case "/status":
 		m.add(fmt.Sprintf("Session %s\nRepository %s\nAgent %s · branch %s · changed entries %d", m.session.ID, m.session.Repo, m.session.Agent, m.branch, m.changes))
+		if m.routingReason != "" {
+			m.add("Routing\n" + m.routingReason)
+		}
 		if m.timing.TotalMS > 0 {
 			m.add(fmt.Sprintf("Last turn\nPreparation %.1fs · first provider event %.1fs · first output %.1fs · total %.1fs\nContext sent: %d bytes", float64(m.timing.PrepareMS)/1000, float64(m.timing.FirstEventMS)/1000, float64(m.timing.FirstOutputMS)/1000, float64(m.timing.TotalMS)/1000, m.timing.ContextBytes))
 		}

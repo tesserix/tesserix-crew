@@ -155,7 +155,7 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 	if strings.TrimSpace(o.Task) == "" {
 		return "", fmt.Errorf("task is empty")
 	}
-	agent, _, e := r.Config.Route(o.Task, o.Agent)
+	agent, routing, e := r.Config.ResolveAgent(o.Task, AgentOptions{Agent: o.Agent, Model: o.Model, Repo: s.Repo, Edits: o.Edits})
 	if e != nil {
 		return "", e
 	}
@@ -305,6 +305,10 @@ func (r *Runner) Run(ctx context.Context, s Session, o RunOptions, emit func(Upd
 		return "", e
 	}
 	journalTurn = true
+	if e = r.Store.Append(s.ID, "routing", agent, routing); e != nil {
+		return "", e
+	}
+	emit(Update{"routing", agent, routing})
 	timing.ContextBytes = len(prompt)
 	timing.PrepareMS = time.Since(turnStarted).Milliseconds()
 	emit(Update{"status", agent, "starting provider"})

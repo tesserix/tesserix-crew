@@ -45,6 +45,20 @@ func TestRetryRestoresTaskWithoutRunningIt(t *testing.T) {
 	}
 }
 
+func TestRoutingReasonSurvivesSessionResume(t *testing.T) {
+	m := guidedModel(t)
+	if err := m.runner.Store.Append(m.session.ID, "routing", "claude", "configured default; local prerequisites verified"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.switchSession(m.session.ID); err != nil {
+		t.Fatal(err)
+	}
+	m.slash("/status")
+	if !strings.Contains(strings.Join(m.lines, "\n"), "configured default; local prerequisites verified") {
+		t.Fatal("resumed session hid the routing reason")
+	}
+}
+
 func TestEscapeCancelsAndKeepsSessionOpen(t *testing.T) {
 	m := guidedModel(t)
 	ctx, cancel := context.WithCancel(context.Background())

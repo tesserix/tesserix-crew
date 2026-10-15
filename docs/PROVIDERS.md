@@ -12,7 +12,7 @@ resume and MCP arguments use the adapter's configured placeholders. Crew-format
 JSON events include text, delta, status, session, error, done and usage.
 Capability declarations must match the executable's actual behavior.
 
-API entries use `kind = "api"`, `endpoint`, an explicit `model`, `auth = "api_key"`,
+API entries use `kind = "api"`, `endpoint`, an explicit `model`, `auth = "api-key"`,
 and `api_key_env`. The endpoint implements compatible Chat Completions tool calls.
 HTTPS is required except localhost. Redirects and credential-bearing URLs are
 rejected. Available tools read files and selected skill support files, write
@@ -28,6 +28,13 @@ API verification used local fake endpoints, not paid live model calls. Gemini's
 built-in subscription adapter remains disabled pending contract verification.
 Custom adapters can be registered independently. No silent provider fallback
 occurs when an explicit provider is unavailable.
+
+With `--agent auto`, Crew tries matching configured rules, the default and then
+other eligible providers before starting. Missing executables, required API-key
+variables and incompatible edit capabilities are skipped with a recorded reason.
+`/status` shows the choice after execution or session resume. Provider-specific
+models remain pinned. Authentication failures after startup stop the turn;
+they never trigger an automatic replay on another provider.
 
 ## Antigravity CLI (`agy`)
 
