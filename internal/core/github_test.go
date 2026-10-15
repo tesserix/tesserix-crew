@@ -14,9 +14,14 @@ type fakeGitHub struct {
 	issues          []GitHubIssue
 	creates, closes int
 	lostResponse    bool
+	onClose         func()
+	onFind          func()
 }
 
 func (g *fakeGitHub) Find(ctx context.Context, repo, marker string) (GitHubIssue, bool, error) {
+	if g.onFind != nil {
+		g.onFind()
+	}
 	for _, issue := range g.issues {
 		if strings.Contains(issue.Body, marker) {
 			return issue, true, nil
@@ -35,6 +40,9 @@ func (g *fakeGitHub) Create(ctx context.Context, repo, title, body string) (GitH
 	return issue, nil
 }
 func (g *fakeGitHub) Close(ctx context.Context, repo string, number int, marker, body string) error {
+	if g.onClose != nil {
+		g.onClose()
+	}
 	g.closes++
 	for i := range g.issues {
 		if g.issues[i].Number == number {
@@ -100,13 +108,13 @@ func TestInvalidIssuePlanCannotWrite(t *testing.T) {
 	}
 }
 
-func TestFullDeliveryClosesOnlyValidatedTrackedIssue(t *testing.T) {
+func prepareVerifiedIssueClosure(t *testing.T, client GitHub) (*Store, Workflow) {
+	t.Helper()
 	s, w := githubWorkflow(t)
 	w.Recipe.Checks = []Check{{Name: "unit", Kind: "unit", Command: []string{"sh", "-c", "test -f fixed"}}}
 	if err := s.SaveWorkflow(&w); err != nil {
 		t.Fatal(err)
 	}
-	client := &fakeGitHub{}
 	w, err := s.RunGitHubStage(context.Background(), w.ID, client)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +147,19 @@ func TestFullDeliveryClosesOnlyValidatedTrackedIssue(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	w, err = s.RunGitHubStage(context.Background(), w.ID, client)
+	return s, w
+}
+
+func TestFullDeliveryClosesOnlyValidatedTrackedIssue(t *testing.T) {
+	client := &fakeGitHub{}
+	s, w := prepareVerifiedIssueClosure(t, client)
+	client.onClose = func() {
+		if err := s.Acquire(w.Repo, "concurrent-editor"); err == nil {
+			s.Release(w.Repo, "concurrent-editor")
+			t.Error("GitHub closure did not serialize repository edits")
+		}
+	}
+	w, err := s.RunGitHubStage(context.Background(), w.ID, client)
 	if err != nil || w.State != "completed" || client.closes != 1 || !w.Issues[0].Closed {
 		t.Fatal(w, err, client.closes)
 	}

@@ -79,6 +79,19 @@ func workflowOverviewText(w core.Workflow, evidence []core.Evidence) string {
 			passed++
 		}
 	}
-	fmt.Fprintf(&b, "Recorded checks: %d passed / %d runs (historical; revalidated before closure)\nTracked issues: %d\n", passed, len(evidence), len(w.Issues))
+	pendingIssues := 0
+	pendingClosures := 0
+	for _, issue := range w.Issues {
+		if issue.CreationPending {
+			pendingIssues++
+		}
+		if issue.ClosurePending {
+			pendingClosures++
+		}
+	}
+	fmt.Fprintf(&b, "Recorded checks: %d passed / %d runs (historical; revalidated before closure)\nTracked issues: %d · awaiting creation confirmation: %d\n", passed, len(evidence), len(w.Issues)-pendingIssues, pendingIssues)
+	if pendingClosures > 0 {
+		fmt.Fprintf(&b, "Issue closures awaiting confirmation: %d\n", pendingClosures)
+	}
 	return b.String()
 }

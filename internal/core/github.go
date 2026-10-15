@@ -20,14 +20,18 @@ type IssueProposal struct {
 	Title      string   `json:"title"`
 	Body       string   `json:"body"`
 	Acceptance []string `json:"acceptance"`
+	Key        string   `json:"key,omitempty"`
+	DependsOn  []string `json:"depends_on,omitempty"`
 }
 type IssueLink struct {
-	Repository string        `json:"repository"`
-	Number     int           `json:"number"`
-	URL        string        `json:"url"`
-	Marker     string        `json:"marker"`
-	Proposal   IssueProposal `json:"proposal"`
-	Closed     bool          `json:"closed"`
+	Repository      string        `json:"repository"`
+	Number          int           `json:"number"`
+	URL             string        `json:"url"`
+	Marker          string        `json:"marker"`
+	Proposal        IssueProposal `json:"proposal"`
+	Closed          bool          `json:"closed"`
+	CreationPending bool          `json:"creation_pending,omitempty"`
+	ClosurePending  bool          `json:"closure_pending,omitempty"`
 }
 type GitHubIssue struct {
 	Number int    `json:"number"`
@@ -213,6 +217,7 @@ func ParseIssueProposals(w Workflow) ([]IssueProposal, error) {
 	if len(proposals) == 0 || len(proposals) > 20 {
 		return nil, fmt.Errorf("issue plan must contain 1–20 scoped issues")
 	}
+	seenKeys := map[string]bool{}
 	for _, p := range proposals {
 		if strings.TrimSpace(p.Title) == "" || len(p.Title) > 256 || strings.TrimSpace(p.Body) == "" || len(p.Acceptance) == 0 {
 			return nil, fmt.Errorf("each issue needs a title, body and acceptance criteria")
@@ -221,6 +226,19 @@ func ParseIssueProposals(w Workflow) ([]IssueProposal, error) {
 			if strings.TrimSpace(criterion) == "" {
 				return nil, fmt.Errorf("empty issue acceptance criterion")
 			}
+		}
+		if p.Key != "" && (!identifier.MatchString(p.Key) || len(p.Key) > 64 || seenKeys[p.Key]) {
+			return nil, fmt.Errorf("issue keys must be valid, unique identifiers")
+		}
+		dependencies := map[string]bool{}
+		for _, key := range p.DependsOn {
+			if !seenKeys[key] || dependencies[key] {
+				return nil, fmt.Errorf("issue dependencies must reference distinct earlier issue keys: %s", key)
+			}
+			dependencies[key] = true
+		}
+		if p.Key != "" {
+			seenKeys[p.Key] = true
 		}
 	}
 	return proposals, nil
@@ -257,15 +275,41 @@ func (s *Store) RunGitHubStage(ctx context.Context, id string, client GitHub) (W
 	}
 	defer release()
 	if stage.Kind == "github-close" {
+		var releaseRepo func()
+		ctx, releaseRepo, err = s.claimLease(ctx, w.Repo)
+		if err != nil {
+			return w, err
+		}
+		defer releaseRepo()
 		if err := s.verifyDelivery(ctx, w); err != nil {
 			return w, err
 		}
 	}
 	var proposals []IssueProposal
+	legacyUncertain := false
+	if w.GitHubIntentVersion == 0 {
+		for _, result := range w.Results {
+			if result.Stage == stage.Name && result.State == "fail" {
+				legacyUncertain = true
+			}
+		}
+		if !legacyUncertain {
+			w.GitHubIntentVersion = 1
+		}
+	}
 	if stage.Kind == "github-create" {
 		proposals, err = ParseIssueProposals(w)
 		if err != nil {
 			return w, err
+		}
+		expected := map[string]bool{}
+		for _, proposal := range proposals {
+			expected[issueMarker(w.ID, proposal)] = true
+		}
+		for _, link := range w.Issues {
+			if !expected[link.Marker] || link.Repository != w.Recipe.GitHubRepo {
+				return w, fmt.Errorf("published issue scope changed; reconcile tracked issues before further GitHub writes")
+			}
 		}
 	}
 	w.State = "running"
@@ -274,19 +318,44 @@ func (s *Store) RunGitHubStage(ctx context.Context, id string, client GitHub) (W
 	}
 	actionErr := error(nil)
 	if stage.Kind == "github-create" {
+		resolved := map[string]string{}
 		for _, proposal := range proposals {
 			marker := issueMarker(w.ID, proposal)
+			known := -1
+			for i := range w.Issues {
+				if w.Issues[i].Marker == marker {
+					known = i
+				}
+			}
 			issue, found, e := client.Find(ctx, w.Recipe.GitHubRepo, marker)
 			if e != nil {
 				actionErr = e
 				break
 			}
 			if !found {
+				if known >= 0 || legacyUncertain {
+					actionErr = fmt.Errorf("creation outcome for %q is unconfirmed; retry remote reconciliation later or inspect GitHub manually; refusing duplicate creation", proposal.Title)
+					break
+				}
 				body := proposal.Body + "\n\nAcceptance criteria:\n"
 				for _, criterion := range proposal.Acceptance {
 					body += "- [ ] " + criterion + "\n"
 				}
+				body += fmt.Sprintf("\nCrew workflow: `%s`\nCrew session: `%s`\nResume locally: `crew resume %s`\n", w.ID, w.Session, w.Session)
+				if len(proposal.DependsOn) > 0 {
+					body += "\nDependencies:\n"
+					for _, key := range proposal.DependsOn {
+						body += "- " + resolved[key] + "\n"
+					}
+				}
 				body += "\n" + marker
+				// Persist intent before the external write. A lost response and a
+				// temporarily stale issue listing must never cause another create.
+				w.Issues = append(w.Issues, IssueLink{Repository: w.Recipe.GitHubRepo, Marker: marker, Proposal: proposal, CreationPending: true})
+				known = len(w.Issues) - 1
+				if err := s.SaveWorkflow(&w); err != nil {
+					return w, err
+				}
 				issue, e = client.Create(ctx, w.Recipe.GitHubRepo, proposal.Title, body)
 				if e != nil {
 					actionErr = e
@@ -297,14 +366,18 @@ func (s *Store) RunGitHubStage(ctx context.Context, id string, client GitHub) (W
 				actionErr = fmt.Errorf("GitHub returned incomplete issue identity")
 				break
 			}
-			exists := false
-			for _, link := range w.Issues {
-				if link.Marker == marker {
-					exists = true
-				}
+			if proposal.Key != "" {
+				resolved[proposal.Key] = issue.URL
 			}
-			if !exists {
-				w.Issues = append(w.Issues, IssueLink{Repository: w.Recipe.GitHubRepo, Number: issue.Number, URL: issue.URL, Marker: marker, Proposal: proposal, Closed: issue.State == "closed"})
+			link := IssueLink{Repository: w.Recipe.GitHubRepo, Number: issue.Number, URL: issue.URL, Marker: marker, Proposal: proposal, Closed: issue.State == "closed"}
+			if known >= 0 {
+				if w.Issues[known].Number > 0 && w.Issues[known].Number != issue.Number {
+					actionErr = fmt.Errorf("tracked issue identity changed; refusing replacement")
+					break
+				}
+				w.Issues[known] = link
+			} else {
+				w.Issues = append(w.Issues, link)
 			}
 			if err := s.SaveWorkflow(&w); err != nil {
 				return w, err
@@ -323,7 +396,15 @@ func (s *Store) RunGitHubStage(ctx context.Context, id string, client GitHub) (W
 				actionErr = fmt.Errorf("tracked issue identity changed; refusing closure")
 				break
 			}
+			if err := s.verifyDelivery(ctx, w); err != nil {
+				actionErr = err
+				break
+			}
 			if issue.State != "closed" {
+				if link.ClosurePending || legacyUncertain {
+					actionErr = fmt.Errorf("closure outcome for %s is unconfirmed; inspect the remote issue and delivery comment before retrying; refusing duplicate writes", link.URL)
+					break
+				}
 				body := deliveryEvidence(w)
 				evidence, _ := s.Evidence(w.ID)
 				for _, item := range evidence {
@@ -334,12 +415,17 @@ func (s *Store) RunGitHubStage(ctx context.Context, id string, client GitHub) (W
 						}
 					}
 				}
+				link.ClosurePending = true
+				if err := s.SaveWorkflow(&w); err != nil {
+					return w, err
+				}
 				if e := client.Close(ctx, link.Repository, link.Number, "<!-- crew-delivery:"+w.ID+" -->", body); e != nil {
 					actionErr = e
 					break
 				}
 			}
 			link.Closed = true
+			link.ClosurePending = false
 			if err := s.SaveWorkflow(&w); err != nil {
 				return w, err
 			}
@@ -361,6 +447,11 @@ func (s *Store) RunGitHubStage(ctx context.Context, id string, client GitHub) (W
 func (s *Store) verifyDelivery(ctx context.Context, w Workflow) error {
 	if len(w.Issues) == 0 {
 		return fmt.Errorf("no scoped issues are tracked")
+	}
+	for _, link := range w.Issues {
+		if link.CreationPending || link.Number <= 0 || link.URL == "" {
+			return fmt.Errorf("issue creation must be confirmed before delivery or closure")
+		}
 	}
 	latest := map[string]StageResult{}
 	for _, result := range w.Results {

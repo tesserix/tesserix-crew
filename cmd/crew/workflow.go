@@ -216,7 +216,13 @@ func printWorkflow(w core.Workflow, asJSON bool) error {
 		fmt.Println("Independence policy explicitly relaxed for this recipe.")
 	}
 	for _, issue := range w.Issues {
-		fmt.Println("Issue:", issue.URL)
+		if issue.CreationPending {
+			fmt.Println("Issue creation awaiting confirmation:", issue.Proposal.Title)
+		} else if issue.ClosurePending {
+			fmt.Println("Issue closure awaiting confirmation:", issue.URL)
+		} else {
+			fmt.Println("Issue:", issue.URL)
+		}
 	}
 	for _, check := range w.Recipe.Checks {
 		fmt.Printf("Check: %s (%s) %s\n", check.Name, check.Kind, strings.Join(check.Command, " "))

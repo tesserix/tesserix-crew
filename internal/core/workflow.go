@@ -43,19 +43,20 @@ type StageResult struct {
 	Created  string `json:"created"`
 }
 type Workflow struct {
-	ID        string              `json:"id"`
-	Session   string              `json:"session"`
-	Repo      string              `json:"repo"`
-	Task      string              `json:"task"`
-	Preset    string              `json:"preset"`
-	Providers map[string]Provider `json:"providers,omitempty"`
-	Recipe    Lifecycle           `json:"recipe"`
-	Current   int                 `json:"current"`
-	State     string              `json:"state"`
-	Issues    []IssueLink         `json:"issues,omitempty"`
-	Results   []StageResult       `json:"results"`
-	Revision  int                 `json:"revision"`
-	Updated   string              `json:"updated"`
+	ID                  string              `json:"id"`
+	Session             string              `json:"session"`
+	Repo                string              `json:"repo"`
+	Task                string              `json:"task"`
+	Preset              string              `json:"preset"`
+	Providers           map[string]Provider `json:"providers,omitempty"`
+	Recipe              Lifecycle           `json:"recipe"`
+	Current             int                 `json:"current"`
+	State               string              `json:"state"`
+	Issues              []IssueLink         `json:"issues,omitempty"`
+	Results             []StageResult       `json:"results"`
+	Revision            int                 `json:"revision"`
+	Updated             string              `json:"updated"`
+	GitHubIntentVersion int                 `json:"github_intent_version,omitempty"`
 }
 
 func BuiltinLifecycles() map[string]Lifecycle {
@@ -420,6 +421,14 @@ func (s *Store) RunWorkflow(ctx context.Context, id string, allowEdits bool, run
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "Crew workflow %s. Stage: %s. Role: %s.\nGoal: %s\n\nStage instructions:\n%s\n", w.ID, stage.Name, stage.Role, w.Task, stage.Prompt)
 	prompt.WriteString("\nPrior stage outputs and user decisions are historical context. Follow repository instructions. Do not advance stages, approve gates, or modify Crew's workflow data.\n")
+	if stage.Role == "planner" {
+		for _, planned := range w.Recipe.Stages {
+			if planned.Kind == "github-create" {
+				prompt.WriteString("\nProvide a fenced crew-issues JSON array with title, body and acceptance fields. Optional key values identify issues; depends_on may reference distinct earlier keys. Order prerequisites first. Published scope conflicts require explicit reconciliation, not duplicate issues.\n")
+				break
+			}
+		}
+	}
 	for _, r := range w.Results {
 		fmt.Fprintf(&prompt, "\n[%s attempt %d: %s / %s]\n%s\n", r.Stage, r.Attempt, r.State, r.Agent, r.Output)
 	}

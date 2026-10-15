@@ -167,7 +167,13 @@ func workflowReviewText(w core.Workflow, evidence []core.Evidence, changes strin
 	}
 	fmt.Fprintf(&b, "\nRepository changes\n%s\n", changes)
 	for _, issue := range w.Issues {
-		fmt.Fprintf(&b, "\nIssue: %s\n", issue.URL)
+		if issue.CreationPending {
+			fmt.Fprintf(&b, "\nIssue creation awaiting confirmation: %s\n", issue.Proposal.Title)
+		} else if issue.ClosurePending {
+			fmt.Fprintf(&b, "\nIssue closure awaiting confirmation: %s\n", issue.URL)
+		} else {
+			fmt.Fprintf(&b, "\nIssue: %s\n", issue.URL)
+		}
 	}
 	b.WriteString("\nPinned checks (commands require workflow approval)\n")
 	if len(w.Recipe.Checks) == 0 {

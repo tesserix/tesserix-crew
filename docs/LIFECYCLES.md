@@ -48,6 +48,13 @@ Closure requires approved preceding stages, passing required checks, and an
 unchanged repository tree. Replanning an already published scope requires manual
 reconciliation; conflicting tracked scope blocks closure.
 
+Proposals may also use a unique `key` and `depends_on` references to earlier keys.
+Order prerequisites first; Crew links the created issue URLs and session identity.
+Invalid dependencies and conflicts with published scope block further writes.
+Creation and closure intents are durable: a lost response followed by a missing
+or stale listing pauses for reconciliation rather than repeating the write.
+Inspect the remote issue/comment and retry once its outcome is confirmed.
+
 `crew workflow run --allow-edits RUN_ID` advances through ready stages until a
 gate or failure. Old pinned recipes retain their manual checkpoints.
 
