@@ -12,7 +12,7 @@ resume and MCP arguments use the adapter's configured placeholders. Crew-format
 JSON events include text, delta, status, session, error, done and usage.
 Capability declarations must match the executable's actual behavior.
 
-API entries use `kind = "api"`, `endpoint`, an explicit `model`, `auth = "api_key"`,
+API entries use `kind = "api"`, `endpoint`, an explicit `model`, `auth = "api-key"`,
 and `api_key_env`. The endpoint implements compatible Chat Completions tool calls.
 HTTPS is required except localhost. Redirects and credential-bearing URLs are
 rejected. Available tools read files and selected skill support files, write
