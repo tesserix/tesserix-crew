@@ -15,6 +15,9 @@ type SessionSummary struct {
 }
 
 func WorkflowNextAction(w Workflow) string {
+	if PendingGitHubUpdates(w) > 0 {
+		return "Reconcile pending GitHub status updates before advancing"
+	}
 	stage := ""
 	if w.Current >= 0 && w.Current < len(w.Recipe.Stages) {
 		stage = w.Recipe.Stages[w.Current].Name

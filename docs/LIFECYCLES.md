@@ -204,3 +204,19 @@ Custom lifecycles may relax provider separation only with an explicit override.
 In the terminal, use `/workflow next`, `/workflow approve`, `/workflow reject
 FEEDBACK`, `/workflow repair NOTE`, and `/workflow evidence`. Edit stages require
 starting the session with `--allow-edits`.
+
+### GitHub progress and automatic advancement
+
+New built-in recipes publish approval, implementation, independent testing and
+delivery stage results to their scoped issues. Set `github_updates = true` in a
+custom lifecycle to enable this. Existing runs keep their pinned setting.
+Private user review notes remain local; the approval decision is published.
+
+`crew workflow run --allow-edits ID` and terminal `/workflow run` advance ready
+stages until approval, evidence, failure or completion. The review panel uses
+`g` for this action and `n` for one stage. Native edit permissions remain explicit.
+
+Use `crew workflow sync ID` or terminal `/workflow sync` (`s` in review) to retry
+GitHub metadata reconciliation without rerunning code. If a write response was
+lost, Crew waits for the remote marker instead of posting a duplicate. Inspect
+and reconcile an ambiguous remote outcome before advancing.
