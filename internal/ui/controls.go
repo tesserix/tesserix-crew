@@ -134,7 +134,13 @@ func (m *model) workflowSlash(fields []string) tea.Cmd {
 		fmt.Fprintf(&b, "%s %s · %s\n", marker, stage.Name, provider)
 	}
 	for _, issue := range w.Issues {
-		fmt.Fprintf(&b, "Issue: %s\n", issue.URL)
+		if issue.CreationPending {
+			fmt.Fprintf(&b, "Issue creation awaiting confirmation: %s\n", issue.Proposal.Title)
+		} else if issue.ClosurePending {
+			fmt.Fprintf(&b, "Issue closure awaiting confirmation: %s\n", issue.URL)
+		} else {
+			fmt.Fprintf(&b, "Issue: %s\n", issue.URL)
+		}
 	}
 	for _, check := range w.Recipe.Checks {
 		fmt.Fprintf(&b, "Check: %s (%s) %s\n", check.Name, check.Kind, strings.Join(check.Command, " "))
