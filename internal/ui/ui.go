@@ -39,6 +39,7 @@ type model struct {
 	busy                         bool
 	status, branch               string
 	workflowState, workflowStage string
+	reopenWorkflowReview         bool
 	changes, skillCount          int
 	started                      time.Time
 	turnStarted                  time.Time
@@ -193,6 +194,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return result
 		}
 	case progressMsg:
+		if v.Kind == "workflow" {
+			m.workflowStage = v.Text
+			if v.Agent != "" {
+				m.session.Agent = v.Agent
+			}
+			return m, wait(m.messages)
+		}
 		if v.Kind == "routing" {
 			m.routingReason = v.Text
 			m.session.Agent = v.Agent
@@ -254,6 +262,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.add("Recovery\n" + recovery)
 				}
 			}
+		}
+		if m.reopenWorkflowReview {
+			m.reopenWorkflowReview = false
+			m.openWorkflowReview()
 		}
 		m.input.Focus()
 		return m, textinput.Blink

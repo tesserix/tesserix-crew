@@ -150,13 +150,13 @@ func (GitHubCLI) Create(ctx context.Context, repo, title, body string) (GitHubIs
 	}
 	return GitHubIssue{Number: number, URL: url, Body: body, State: "open"}, nil
 }
-func (GitHubCLI) Close(ctx context.Context, repo string, number int, marker, body string) error {
+func (GitHubCLI) HasComment(ctx context.Context, repo string, number int, marker string) (bool, error) {
 	output, err := ghOutput(ctx, "api", fmt.Sprintf("repos/%s/issues/%d/comments?per_page=100", repo, number), "--paginate")
 	if err != nil {
-		return err
+		return false, err
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(output)))
-	exists := false
+	matches := 0
 	for {
 		var page []struct {
 			Body string `json:"body"`
@@ -166,21 +166,37 @@ func (GitHubCLI) Close(ctx context.Context, repo string, number int, marker, bod
 			break
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, comment := range page {
-			if strings.Contains(comment.Body, marker) {
-				exists = true
+			if strings.HasSuffix(strings.TrimSpace(comment.Body), marker) {
+				matches++
 			}
 		}
 	}
+	if matches > 1 {
+		return false, fmt.Errorf("multiple comments share the workflow status marker; reconcile duplicates")
+	}
+	return matches == 1, nil
+}
+
+func (GitHubCLI) PostComment(ctx context.Context, repo string, number int, marker, body string) error {
+	path, cleanup, err := privateBody(body + "\n\n" + marker)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	_, err = ghOutput(ctx, "issue", "comment", fmt.Sprint(number), "--repo", repo, "--body-file", path)
+	return err
+}
+
+func (client GitHubCLI) Close(ctx context.Context, repo string, number int, marker, body string) error {
+	exists, err := client.HasComment(ctx, repo, number, marker)
+	if err != nil {
+		return err
+	}
 	if !exists {
-		path, cleanup, err := privateBody(body + "\n\n" + marker)
-		if err != nil {
-			return err
-		}
-		defer cleanup()
-		if _, err := ghOutput(ctx, "issue", "comment", fmt.Sprint(number), "--repo", repo, "--body-file", path); err != nil {
+		if err := client.PostComment(ctx, repo, number, marker, body); err != nil {
 			return err
 		}
 	}

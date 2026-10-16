@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -16,11 +17,11 @@ import (
 
 func workflow(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: crew workflow start|list|status|next|run|approve|reject|record|retry|recover|presets|check|evidence|repair [options] [ID]")
+		return fmt.Errorf("usage: crew workflow start|list|status|next|run|approve|reject|record|retry|recover|presets|check|evidence|repair|sync [options] [ID]")
 	}
 	action := args[0]
 	switch action {
-	case "start", "list", "status", "next", "approve", "reject", "record", "retry", "recover", "presets", "check", "evidence", "repair", "run":
+	case "start", "list", "status", "next", "approve", "reject", "record", "retry", "recover", "presets", "check", "evidence", "repair", "run", "sync":
 	default:
 		return fmt.Errorf("unknown workflow action %q", action)
 	}
@@ -155,25 +156,19 @@ func workflow(ctx context.Context, args []string) error {
 				}
 				printUpdate(os.Stdout, os.Stderr, update)
 			}
-			for steps := 0; steps < len(w.Recipe.Stages); steps++ {
-				if w.State != "ready" {
-					break
-				}
-				stage := w.Recipe.Stages[w.Current]
-				if stage.Kind == "github-create" || stage.Kind == "github-close" {
-					w, err = store.RunGitHubStage(ctx, w.ID, core.GitHubCLI{})
-				} else {
-					w, err = store.RunWorkflow(ctx, w.ID, *edits, runner.Run, emit)
-				}
-				if err != nil || action == "next" {
-					break
-				}
-			}
+			w, err = store.AdvanceWorkflow(ctx, w.ID, *edits, action == "run", runner.Run, core.GitHubCLI{}, emit)
+		case "sync":
+			w, err = store.SyncGitHubProgress(ctx, w.ID, core.GitHubCLI{})
 		case "approve", "reject", "record", "retry":
 			w, err = store.DecideWorkflow(w.ID, action, *note)
 		case "recover":
 			w, err = store.RecoverWorkflow(w.ID, *note)
 		}
+	}
+	if err == nil && (action == "approve" || action == "reject" || action == "record" || action == "retry" || action == "repair" || action == "recover") {
+		var syncErr error
+		w, syncErr = store.SyncGitHubProgress(ctx, w.ID, core.GitHubCLI{})
+		err = errors.Join(err, syncErr)
 	}
 	if w.ID != "" {
 		if e := printWorkflow(w, *asJSON); e != nil && err == nil {
@@ -223,6 +218,9 @@ func printWorkflow(w core.Workflow, asJSON bool) error {
 		} else {
 			fmt.Println("Issue:", issue.URL)
 		}
+	}
+	if pending := core.PendingGitHubUpdates(w); pending > 0 {
+		fmt.Printf("GitHub updates awaiting confirmation: %d · recover with crew workflow sync %s\n", pending, w.ID)
 	}
 	for _, check := range w.Recipe.Checks {
 		fmt.Printf("Check: %s (%s) %s\n", check.Name, check.Kind, strings.Join(check.Command, " "))

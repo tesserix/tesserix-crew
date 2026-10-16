@@ -93,5 +93,8 @@ func workflowOverviewText(w core.Workflow, evidence []core.Evidence) string {
 	if pendingClosures > 0 {
 		fmt.Fprintf(&b, "Issue closures awaiting confirmation: %d\n", pendingClosures)
 	}
+	if pending := core.PendingGitHubUpdates(w); pending > 0 {
+		fmt.Fprintf(&b, "GitHub status updates awaiting confirmation: %d · use /workflow sync\n", pending)
+	}
 	return b.String()
 }
