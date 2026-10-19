@@ -262,7 +262,7 @@ func (m model) panelView() string {
 	hint := "d details · o overview · f refresh · Esc chat · e evidence · PgUp/PgDn"
 	switch p.state {
 	case "ready":
-		hint = "n next · " + hint
+		hint = "n next · g run to gate · s sync GitHub · " + hint
 	case "awaiting-approval":
 		hint = "a approve · r reject · " + hint
 	case "awaiting-evidence":
@@ -360,12 +360,19 @@ func (m model) updatePanel(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "f":
 			m.openWorkflowReview()
 			return m, nil
-		case "n":
+		case "s":
+			m.panel = nil
+			return m, m.workflowSlash([]string{"/workflow", "sync"})
+		case "g", "n":
 			if p.state != "ready" {
 				return m, nil
 			}
 			m.panel = nil
-			cmd := m.workflowSlash([]string{"/workflow", "next"})
+			action := "next"
+			if key.String() == "g" {
+				action = "run"
+			}
+			cmd := m.workflowSlash([]string{"/workflow", action})
 			return m, cmd
 		case "a":
 			if p.state != "awaiting-approval" {
@@ -418,7 +425,13 @@ func (m model) updatePanel(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			m.add("Error\n" + err.Error())
 		} else {
-			m.openWorkflowReview()
+			m.reopenWorkflowReview = true
+			r := m.runner
+			id := p.workflowID
+			return m, m.startOperation(func(ctx context.Context, emit func(core.Update)) error {
+				_, err := r.Store.SyncGitHubProgress(ctx, id, core.GitHubCLI{})
+				return err
+			})
 		}
 		return m, nil
 	}

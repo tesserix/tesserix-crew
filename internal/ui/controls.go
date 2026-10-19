@@ -34,7 +34,7 @@ func (m model) completions() []string {
 	for _, name := range m.providerNames() {
 		out = append(out, "/agent "+name)
 	}
-	return append(out, "/model", "/sessions", "/sessions all", "/skills", "/skills list", "/skills refresh", "/providers", "/status", "/context", "/context status", "/context draft", "/context apply", "/context pins", "/context pin", "/context search", "/workflow", "/workflow start", "/workflow next", "/workflow approve", "/workflow reject", "/workflow retry", "/workflow repair", "/workflow evidence", "/help", "/quit")
+	return append(out, "/model", "/sessions", "/sessions all", "/skills", "/skills list", "/skills refresh", "/providers", "/status", "/context", "/context status", "/context draft", "/context apply", "/context pins", "/context pin", "/context search", "/workflow", "/workflow start", "/workflow next", "/workflow run", "/workflow sync", "/workflow approve", "/workflow reject", "/workflow retry", "/workflow repair", "/workflow evidence", "/help", "/quit")
 }
 func (m *model) workflowSlash(fields []string) tea.Cmd {
 	if m.runner == nil {
@@ -72,7 +72,13 @@ func (m *model) workflowSlash(fields []string) tea.Cmd {
 				}
 			}
 			return nil
-		case "next":
+		case "sync":
+			r := m.runner
+			return m.startOperation(func(ctx context.Context, emit func(core.Update)) error {
+				_, err := r.Store.SyncGitHubProgress(ctx, w.ID, core.GitHubCLI{})
+				return err
+			})
+		case "next", "run":
 			if w.State != "ready" {
 				m.add("Workflow is " + w.State + "; review its current gate first.")
 				return nil
@@ -84,10 +90,6 @@ func (m *model) workflowSlash(fields []string) tea.Cmd {
 			edits := m.options.Edits
 			approvals := m.options.NativeApprovals
 			return m.startOperation(func(ctx context.Context, emit func(core.Update)) error {
-				if stage.Kind == "github-create" || stage.Kind == "github-close" {
-					_, err := r.Store.RunGitHubStage(ctx, w.ID, core.GitHubCLI{})
-					return err
-				}
 				run := r.Run
 				if approvals {
 					handler := approvalCallback(m.messages)
@@ -97,16 +99,23 @@ func (m *model) workflowSlash(fields []string) tea.Cmd {
 						return r.Run(ctx, s, o, emit)
 					}
 				}
-				_, err := r.Store.RunWorkflow(ctx, w.ID, edits, run, emit)
+				_, err := r.Store.AdvanceWorkflow(ctx, w.ID, edits, action == "run", run, core.GitHubCLI{}, emit)
 				return err
 			})
 		default:
-			m.add("Usage: /workflow [next|approve|reject FEEDBACK|retry NOTE|repair NOTE|record EVIDENCE|evidence]")
+			m.add("Usage: /workflow [next|run|sync|approve|reject FEEDBACK|retry NOTE|repair NOTE|record EVIDENCE|evidence]")
 			return nil
 		}
 		if err != nil {
 			m.add("Error\n" + err.Error())
 			return nil
+		}
+		if action == "approve" || action == "reject" || action == "retry" || action == "record" || action == "repair" {
+			r := m.runner
+			return m.startOperation(func(ctx context.Context, emit func(core.Update)) error {
+				_, err := r.Store.SyncGitHubProgress(ctx, w.ID, core.GitHubCLI{})
+				return err
+			})
 		}
 	}
 	m.workflowState = w.State

@@ -48,6 +48,17 @@ root=pathlib.Path(os.environ['CREW_GH_ROOT']);args=sys.argv[1:]
 p=subprocess.run([os.environ['CREW_GH_REAL'],*args],capture_output=True)
 with (root/'gh-calls.jsonl').open('a') as f:f.write(json.dumps({'operation':args[:2],'exit':p.returncode})+'\\n')
 output=p.stdout
+if args[:2]==['issue','comment'] and p.returncode==0 and '--body-file' in args:
+ body=pathlib.Path(args[args.index('--body-file')+1]).read_text()
+ if '<!-- crew-progress:' in body and not (root/'lost-progress').exists():
+  (root/'lost-progress').write_text(body.rsplit('\\n',1)[-1])
+  sys.stderr.write('Controlled lost progress comment response\\n');sys.exit(1)
+if p.returncode==0 and args and args[0]=='api' and any('/comments?' in arg for arg in args) and (root/'lost-progress').exists() and not (root/'stale-progress').exists():
+ marker=(root/'lost-progress').read_text();data=p.stdout.decode();decoder=json.JSONDecoder();pages=[]
+ while data.strip():
+  data=data.lstrip();page,n=decoder.raw_decode(data);pages.append([c for c in page if not c.get('body','').strip().endswith(marker)]);data=data[n:]
+ output=('\\n'.join(json.dumps(page) for page in pages)).encode()
+ (root/'stale-progress').write_text('One stale comments listing')
 for operation in ['create','close']:
  flag=root/('lost-'+operation)
  if args[:2]==['issue',operation] and p.returncode==0 and not flag.exists():
@@ -76,7 +87,7 @@ sys.stdout.buffer.write(output);sys.stderr.buffer.write(p.stderr);sys.exit(p.ret
 config='default_agent="planner"\n'
 for name in ['designer','planner','reviewer','maker','checker','reporter']:
  config+=f'\n[providers.{name}]\nkind="cli"\ncommand={json.dumps([sys.executable,str(adapter),name])}\nformat="crew"\nauth="none"\nread_only_args=["--read"]\nedit_args=["--write"]\ncapabilities=["read","write","tools"]\n'
-config+='\n[lifecycles.github-live]\ndescription="Real GitHub lifecycle and lost-response acceptance"\ngithub_repo="'+target+'"\ntdd=true\nmax_repairs=1\n[[lifecycles.github-live.checks]]\nname="unit"\nkind="unit"\ncommand='+json.dumps([sys.executable,'-m','unittest','test_unit.py'])+'\n'
+config+='\n[lifecycles.github-live]\ndescription="Real GitHub lifecycle and lost-response acceptance"\ngithub_repo="'+target+'"\ngithub_updates=true\ntdd=true\nmax_repairs=1\n[[lifecycles.github-live.checks]]\nname="unit"\nkind="unit"\ncommand='+json.dumps([sys.executable,'-m','unittest','test_unit.py'])+'\n'
 stages=[('design','agent','designer','designer',False),('plan','agent','planner','planner',False),('agent-review','agent','reviewer','reviewer',False),('create-github-issues','github-create','','',False),('user-review','approval','','',False),('implement','agent','implementer','maker',True),('test','agent','tester','checker',True),('deliver','agent','deliverer','reporter',False),('close-github-issues','github-close','','',False)]
 for name,kind,role,agent,edits in stages:
  config+='\n[[lifecycles.github-live.stages]]\nname='+json.dumps(name)+'\nkind='+json.dumps(kind)+'\nprompt="Execute only the controlled acceptance fixture stage"\n'
@@ -112,6 +123,12 @@ assert links[0]['url'] in remote(links[1]['number'])['body']
 assert w['session'] in remote(links[0]['number'])['body']
 w=call('next','--allow-edits',id,expected=['awaiting-approval']);assert 'a-b' in (repo/'arithmetic.py').read_text()
 w=call('approve','--note','Reviewed controlled fixture issue set, dependency and pinned unit command.',id,expected=['ready'])
+assert (root/'lost-progress').exists() and any(not u['confirmed'] for u in w['github_updates'])
+current=w['current'];results=len(w['results'])
+w=call('next','--allow-edits',id,expected=['ready'])
+assert w['current']==current and len(w['results'])==results and (root/'stale-progress').exists()
+w=call('sync',id,expected=['ready'])
+assert all(u['confirmed'] for u in w['github_updates'])
 w=call('next','--allow-edits',id,expected=['ready'])
 (repo/'arithmetic.py').write_text('def add(a,b):\n    return a-b\n')
 w=call('next','--allow-edits',id,expected=['failed'])
@@ -130,8 +147,11 @@ assert w['state']=='completed' and all(x['closed'] for x in w['issues'])
 for link in links:
  data=remote(link['number']);assert data['state']=='CLOSED'
  assert sum(('<!-- crew-delivery:'+id+' -->') in c['body'] for c in data['comments'])==1
+ for update in w['github_updates']:
+  if update['number']==link['number']:
+   assert sum(c['body'].strip().endswith(update['marker']) for c in data['comments'])==1
 before=(root/'gh-calls.jsonl').read_text();call('next',id,expected=['completed']);assert before==(root/'gh-calls.jsonl').read_text()
 calls=[json.loads(x) for x in before.splitlines()]
 assert sum(x['operation']==['issue','create'] for x in calls)==2
-report=dict(state='passed',root=str(root),workflow=id,issues=[x['url'] for x in links],creation_calls=2,delivery_comments_per_issue=1,lost_create_reconciled=True,lost_close_reconciled=True,stale_metadata_refused_duplicate_writes=True,failed_checks_kept_issues_open=True,limitations=['Scripted stage agents; real gh authentication/API and real executable checks','Lost responses and one stale listing per operation are deliberately injected'])
+report=dict(state='passed',root=str(root),workflow=id,issues=[x['url'] for x in links],creation_calls=2,delivery_comments_per_issue=1,lost_create_reconciled=True,lost_close_reconciled=True,lost_progress_reconciled=True,progress_comments=len(w['github_updates']),stale_metadata_refused_duplicate_writes=True,failed_checks_kept_issues_open=True,limitations=['Scripted stage agents; real gh authentication/API and real executable checks','Lost responses and one stale listing per operation are deliberately injected'])
 (root/'result.json').write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)

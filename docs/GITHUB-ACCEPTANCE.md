@@ -42,5 +42,22 @@ python3 scripts/smoke_github.py --crew /private/tmp/crew-github --github-repo OW
 
 This verifies real GitHub transitions with scripted stage agents. Separate
 [live provider acceptance](LIVE-ACCEPTANCE.md) covers real Claude/Codex coding.
-Per-stage GitHub progress updates remain part of the active #4 follow-up until
-their own delivery and validation complete.
+
+The 2026-10-16 progress acceptance created and closed fixtures
+[#25](https://github.com/tesserix/tesserix-crew/issues/25) and
+[#26](https://github.com/tesserix/tesserix-crew/issues/26), workflow
+`9012fc9d7361995f`. It recorded 12 unique stage comments (approval,
+implementation, failed independent check, repair/retest and delivery), with one
+final delivery comment per issue. A lost progress-comment reply followed by a
+stale comments listing paused advancement. `workflow sync` reconciled metadata
+without repeating a provider stage or comment. Completed replay performed no
+GitHub calls. Real GitHub API calls and executable checks passed; stage agents
+were scripted fixture adapters.
+
+New built-in recipes enable `github_updates = true`; custom recipes can opt in.
+Existing pinned recipes retain their original setting. Progress intent is saved
+before each comment write; an unknown outcome requires remote reconciliation.
+`crew workflow sync ID` (or `/workflow sync`) only synchronizes metadata. Full
+user review feedback remains local; published approval comments contain the
+recorded decision only. Agent reports and check summaries are published to the
+explicitly pinned repository, with long reports bounded to GitHub comment size.

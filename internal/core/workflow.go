@@ -14,6 +14,7 @@ type Lifecycle struct {
 	Description   string  `toml:"description" json:"description"`
 	AllowSelfTest bool    `toml:"allow_self_test" json:"allow_self_test,omitempty"`
 	GitHubRepo    string  `toml:"github_repo" json:"github_repo,omitempty"`
+	GitHubUpdates bool    `toml:"github_updates" json:"github_updates,omitempty"`
 	Checks        []Check `toml:"checks" json:"checks,omitempty"`
 	TDD           bool    `toml:"tdd" json:"tdd,omitempty"`
 	NoTDDReason   string  `toml:"no_tdd_reason" json:"no_tdd_reason,omitempty"`
@@ -57,11 +58,12 @@ type Workflow struct {
 	Revision            int                 `json:"revision"`
 	Updated             string              `json:"updated"`
 	GitHubIntentVersion int                 `json:"github_intent_version,omitempty"`
+	GitHubUpdates       []GitHubUpdate      `json:"github_updates,omitempty"`
 }
 
 func BuiltinLifecycles() map[string]Lifecycle {
 	presets := map[string]Lifecycle{
-		"default": {TDD: true, MaxRepairs: 2, Description: "Reviewed delivery with independent testing and GitHub checkpoints", Stages: []Stage{
+		"default": {TDD: true, MaxRepairs: 2, GitHubUpdates: true, Description: "Reviewed delivery with independent testing and GitHub checkpoints", Stages: []Stage{
 			{Name: "design", Kind: "agent", Role: "designer", Agent: "claude", Prompt: "Clarify the goal, constraints and acceptance criteria. Compare design options; recommend a concrete design. Do not implement."},
 			{Name: "plan", Kind: "agent", Role: "planner", Agent: "claude", Prompt: "Create an implementation plan and proposed GitHub issue scope with acceptance criteria and a test strategy. Do not implement."},
 			{Name: "agent-review", Kind: "agent", Role: "reviewer", Agent: "codex", Prompt: "Independently review the design and plan. Check feasibility, scope, risks and test coverage. Fail if material problems remain; give actionable feedback. Do not implement."},

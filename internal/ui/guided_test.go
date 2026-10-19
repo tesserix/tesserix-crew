@@ -174,3 +174,27 @@ func TestGuidedPanelsFitSmallTerminals(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowProgressKeepsProviderForAgentlessStage(t *testing.T) {
+	m := guidedModel(t)
+	provider := m.session.Agent
+	next, _ := m.Update(progressMsg(core.Update{Kind: "workflow", Text: "close-github-issues"}))
+	m = next.(model)
+	if m.session.Agent != provider || m.workflowStage != "close-github-issues" {
+		t.Fatal(m.session.Agent, m.workflowStage)
+	}
+}
+func TestWorkflowDecisionRefreshesReviewAfterMetadataSync(t *testing.T) {
+	m := guidedModel(t)
+	w, err := m.runner.StartWorkflow(m.session.Repo, "Review fixture", "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.session.ID = w.ID
+	m.reopenWorkflowReview = true
+	next, _ := m.Update(finishMsg{})
+	m = next.(model)
+	if m.panel == nil || m.panel.workflowID != w.ID || m.reopenWorkflowReview {
+		t.Fatal("review not reopened")
+	}
+}
